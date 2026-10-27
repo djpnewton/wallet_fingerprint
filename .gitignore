@@ -6,3 +6,4 @@ data/*.sqlite-wal
 rules/local.yaml
 *.log
 .DS_Store
+dist/

@@ -16,13 +16,15 @@
     "backfill": "node --disable-warning=ExperimentalWarning src/cli.ts backfill",
     "dashboard": "node --disable-warning=ExperimentalWarning src/cli.ts dashboard",
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.web.json",
+    "build:web": "node --disable-warning=ExperimentalWarning scripts/build-web.ts"
   },
   "dependencies": {
     "yaml": "^2.8.1"
   },
   "devDependencies": {
     "@types/node": "^22.19.0",
+    "esbuild": "^0.28.2",
     "typescript": "^5.9.3"
   }
 }

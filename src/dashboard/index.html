@@ -507,7 +507,7 @@
           ),
         );
         if (rows.length === 0) {
-          $('recent').replaceChildren(el('tr', {}, [el('td', { class: 'empty', colspan: '7', text: 'no transactions yet — run backfill or live' })]));
+          $('recent').replaceChildren(el('tr', {}, [el('td', { class: 'empty', colspan: '7', text: transport.emptyHint ?? 'no transactions yet — run backfill or live' })]));
         }
       }
 
@@ -538,8 +538,7 @@
 
       async function loadNearMisses() {
         try {
-          const res = await fetch(`/api/research/near-misses${spamHidden ? '?exclude_spam=1' : ''}`);
-          const { nearMisses } = await res.json();
+          const { nearMisses } = await transport.nearMisses(spamHidden);
           if (!nearMisses.length) {
             $('nearMisses').replaceChildren(el('div', { class: 'empty', text: 'no near misses yet' }));
             return;
@@ -567,9 +566,7 @@
         panel.classList.add('open');
         $('detailBody').replaceChildren(el('div', { class: 'empty', text: 'loading…' }));
         try {
-          const res = await fetch(`/api/tx/${txid}`);
-          if (!res.ok) throw new Error('not found');
-          const tx = await res.json();
+          const tx = await transport.tx(txid);
           const f = tx.features;
           const fields = [
             ['status', tx.status + (tx.block_height ? ` @ ${tx.block_height}` : '')],
@@ -643,6 +640,38 @@
         $('detail').classList.add('open');
       });
 
+      /**
+       * Where the numbers come from.
+       *
+       * The CLI dashboard serves this page from a local server and talks HTTP.
+       * The static web build (no backend, no storage) installs
+       * `window.__wfTransport` before this script runs, so exactly one renderer
+       * serves both and the two can never disagree about what a number means.
+       */
+      const transport = window.__wfTransport ?? {
+        downloads: false,
+        stream: ({ excludeSpam, onStats, onError }) => {
+          const es = new EventSource(`/api/stream${excludeSpam ? '?exclude_spam=1' : ''}`);
+          es.addEventListener('stats', (ev) => onStats(JSON.parse(ev.data)));
+          es.onerror = () => {
+            es.close();
+            onError();
+          };
+          return { close: () => es.close() };
+        },
+        nearMisses: async (excludeSpam) => {
+          const res = await fetch(`/api/research/near-misses${excludeSpam ? '?exclude_spam=1' : ''}`);
+          return res.json();
+        },
+        tx: async (txid) => {
+          const res = await fetch(`/api/tx/${txid}`);
+          if (!res.ok) throw new Error('not found');
+          return res.json();
+        },
+        exportHref: (excludeSpam) =>
+          `/api/research/unknown.jsonl?weak=1${excludeSpam ? '&exclude_spam=1' : ''}`,
+      };
+
       function applyStats(payload) {
         const d = payload.data;
         lastStats = d;
@@ -660,10 +689,11 @@
             : ` · ${fmt(summary.spam)} spam included`
           : '';
         $('spamCount').textContent = spamNote;
-        $('exportLink').setAttribute(
-          'href',
-          `/api/research/unknown.jsonl?weak=1${spamHidden ? '&exclude_spam=1' : ''}`,
-        );
+        const href = transport.exportHref(spamHidden);
+        if (href !== $('exportLink').getAttribute('href')) {
+          if (transport.downloads) $('exportLink').setAttribute('download', 'wallet-fingerprint-unknown.jsonl');
+          $('exportLink').setAttribute('href', href);
+        }
         const staleEl = $('stale');
         // A handful of rows lagging behind is normal while a live ingest process
         // writes; only shout when there is enough drift to move the statistics.
@@ -692,21 +722,22 @@
 
       function connect() {
         if (source) source.close();
-        const query = spamHidden ? '?exclude_spam=1' : '';
-        source = new EventSource(`/api/stream${query}`);
-        source.addEventListener('stats', (ev) => {
-          $('conn').classList.add('on');
-          $('connText').textContent = 'live';
-          document.body.classList.remove('loading');
-          applyStats(JSON.parse(ev.data));
-          loadNearMisses();
+        source = transport.stream({
+          excludeSpam: spamHidden,
+          onStats: (payload) => {
+            $('conn').classList.add('on');
+            $('connText').textContent = 'live';
+            document.body.classList.remove('loading');
+            applyStats(payload);
+            loadNearMisses();
+          },
+          onError: () => {
+            $('conn').classList.remove('on');
+            $('connText').textContent = 'reconnecting…';
+            if (source) source.close();
+            setTimeout(connect, 3000);
+          },
         });
-        source.onerror = () => {
-          $('conn').classList.remove('on');
-          $('connText').textContent = 'reconnecting…';
-          if (source) source.close();
-          setTimeout(connect, 3000);
-        };
       }
 
       const TABS = ['wallets', 'fingerprints'];

@@ -266,6 +266,40 @@ the network and can never be re-fetched. Only rows written with `--no-raw` are
 unrecoverable, and `classify` reports their count explicitly.
 
 
+## Static web build (no backend)
+
+`npm run build:web` produces `dist/web/` — `index.html` and a single `app.js` —
+and there is nothing else. No database, no server, no storage. Open the folder
+from any static host and the page classifies the live mempool in the browser.
+
+```bash
+npm run build:web
+python3 -m http.server 8790 --directory dist/web
+# http://127.0.0.1:8790
+```
+
+How it works: the page subscribes to the mempool.space websocket, fetches each
+announced transaction over REST (the socket carries only txids), runs the *same*
+rule engine and the *same* reporting code as the CLI, and counts everything in
+memory. mempool.space sends `access-control-allow-origin: *`, so no proxy is
+needed. The rule set is inlined at build time, so there is exactly one request
+type: transactions.
+
+[![the static build](docs/web.png)](docs/web.png)
+
+**What is different, and why it matters.** The corpus is a *sample*: everything
+seen since the page loaded, not the mempool. Base rates — and therefore
+specificity — are measured against that sample, so they sharpen as it grows and
+a freshly loaded page will look noisier than a long-running one. There is no
+history either, so nothing can go stale and nothing survives a reload. For
+research on a real corpus, use the stored version.
+
+The two builds share `rules.ts` (matching), `features.ts` (extraction),
+`report.ts` (counting) and `dashboard/index.html` (rendering). Only the transport
+differs, which is why the numbers mean the same thing on both — `test/memory.test.ts`
+asserts that the SQLite and in-memory stores produce identical reports for the
+same corpus.
+
 ## Install
 
 Requires Node.js ≥ 22.18 (uses `node:sqlite` and native TypeScript execution).
@@ -292,6 +326,7 @@ npm run typecheck
 | `research export` | dump the research pool as JSON Lines |
 | `fingerprints` | list or validate the rule set |
 | `dashboard` | serve the read-only web UI |
+| — | `npm run build:web` builds the backend-free static version |
 | `init` | create the database and validate the rules |
 
 Useful flags: `--db <path>`, `--api <url>`, `--rps <n>`, `--concurrency <n>`,
@@ -456,7 +491,11 @@ src/
   config.ts         defaults < config.json < env < flags
   mempool.ts        REST client (rate limit, retry, abort) + websocket
   features.ts       transaction -> feature vector
-  fingerprints.ts   rule loading, matching, confidence combination
+  rules.ts          the rule engine (matches, confidence) — browser-safe
+  fingerprints.ts   rule *loading* from disk + rules digest (Node only)
+  rows.ts           storage-agnostic row types the reporter builds from
+  memory.ts         in-memory corpus for the static build, mirroring db.ts
+  near-miss.ts      near-miss ranking over feature vectors — browser-safe
   pipeline.ts       fetch -> extract -> classify -> store (shared by all modes)
   backfill.ts       resumable mempool snapshot
   live.ts           websocket ingest, block confirmation, reconcile
@@ -465,6 +504,8 @@ src/
   report.ts         shared stats payload
   render.ts         table/bar helpers
   dashboard/        HTTP server + single-page UI
+  web/              static build entry (websocket ingest, no storage)
+scripts/build-web.ts  bundles src/web into dist/web/
 rules/default.yaml  the shipped fingerprint profiles
 docs/FEATURES.md    every feature name and meaning
 ```

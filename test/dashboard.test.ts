@@ -55,7 +55,9 @@ test('the dashboard serves the page and stats payload', async () => {
     assert.equal(page.status, 200);
     const html = await page.text();
     assert.match(html, /Mempool <span>wallet fingerprints<\/span>/);
-    assert.match(html, /new EventSource\(`\/api\/stream\$\{query\}`\)/);
+    // The page renders from a transport, which the static web build replaces.
+    assert.match(html, /window\.__wfTransport \?\?/);
+    assert.match(html, /new EventSource\(`\/api\/stream\$\{excludeSpam \? '\?exclude_spam=1' : ''\}`\)/);
     assert.match(html, /id="hideSpam"/);
     // The panel is fingerprint-centric: wallets are a candidate set, not a ranking.
     assert.match(html, /id="fingerprints"/);

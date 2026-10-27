@@ -9,19 +9,14 @@
 
 import type { Db } from './db.ts';
 import { WEAK_ATTRIBUTION_THRESHOLD, parseLabels, walletsOf } from './db.ts';
-import { evaluateMatch } from './fingerprints.ts';
-import type { ClusterRow } from './db.ts';
-import type { Profile, TxFeatures, WalletTag } from './types.ts';
+import { nearMissFromFeatures } from './near-miss.ts';
+import type { NearMissRow } from './near-miss.ts';
+import type { ClusterRow, TxExplanation } from './rows.ts';
+import type { Profile, TxFeatures } from './types.ts';
 
-export interface NearMissRow {
-  profileId: string;
-  title: string;
-  /** Unknown txs that satisfy at least one condition of this profile. */
-  txs: number;
-  /** Mean fraction of conditions satisfied. */
-  avgRatio: number;
-  failed: Array<{ condition: string; count: number }>;
-}
+export { nearMissFromFeatures };
+export type { NearMissRow } from './near-miss.ts';
+export type { TxExplanation } from './rows.ts';
 
 export interface UnknownTx {
   txid: string;
@@ -66,6 +61,9 @@ function researchFeatures(
   return rows.map((r) => JSON.parse(r.features_json) as TxFeatures);
 }
 
+/**
+ * The same ranking, over the transactions this database has not attributed.
+ */
 export function nearMissReport(
   db: Db,
   profiles: readonly Profile[],
@@ -76,48 +74,16 @@ export function nearMissReport(
     excludeSpam?: boolean;
   } = {},
 ): NearMissRow[] {
-  const features = researchFeatures(
-    db,
-    options.sampleSize ?? 5000,
-    options.includeWeak ?? false,
-    options.excludeSpam ?? false,
+  return nearMissFromFeatures(
+    researchFeatures(
+      db,
+      options.sampleSize ?? 5_000,
+      options.includeWeak ?? false,
+      options.excludeSpam ?? false,
+    ),
+    profiles,
+    options,
   );
-  const accumulator = new Map<string, { txs: number; ratioSum: number; failed: Map<string, number> }>();
-
-  for (const f of features) {
-    for (const profile of profiles) {
-      if (!profile.enabled) continue;
-      const result = evaluateMatch(f, profile.match);
-      if (result.ok) continue;
-      const ratio = result.total > 0 ? result.passed / result.total : 0;
-      if (ratio === 0) continue;
-      const acc = accumulator.get(profile.id) ?? { txs: 0, ratioSum: 0, failed: new Map() };
-      acc.txs++;
-      acc.ratioSum += ratio;
-      for (const cond of result.failed) acc.failed.set(cond, (acc.failed.get(cond) ?? 0) + 1);
-      accumulator.set(profile.id, acc);
-    }
-  }
-
-  const rows: NearMissRow[] = [];
-  for (const [profileId, acc] of accumulator) {
-    const profile = profiles.find((p) => p.id === profileId);
-    if (!profile) continue;
-    rows.push({
-      profileId,
-      title: profile.title,
-      txs: acc.txs,
-      avgRatio: Number((acc.ratioSum / acc.txs).toFixed(2)),
-      failed: [...acc.failed.entries()]
-        .map(([condition, count]) => ({ condition, count }))
-        .sort((a, b) => b.count - a.count || a.condition.localeCompare(b.condition))
-        .slice(0, 4),
-    });
-  }
-
-  return rows
-    .sort((a, b) => b.txs - a.txs || b.avgRatio - a.avgRatio)
-    .slice(0, options.top ?? 15);
 }
 
 export function exportUnknown(
@@ -159,41 +125,6 @@ export function exportUnknown(
   }));
 }
 
-export interface TxExplanation {
-  txid: string;
-  status: string;
-  block_height: number | null;
-  first_seen_at: number;
-  fee: number;
-  vsize: number;
-  fee_rate: number;
-  features: TxFeatures;
-  wallets: WalletTag[];
-  labels: string[];
-  profiles: Array<{
-    profileId: string;
-    confidence: number;
-    title: string;
-    baseRate: number | null;
-    specificity: number;
-  }>;
-  nearMisses: Array<{ profileId: string; title: string; ratio: number; failed: string[] }>;
-  inputs: Array<{
-    idx: number;
-    prev_txid: string | null;
-    prev_vout: number | null;
-    value: number | null;
-    address: string | null;
-    script_type: string | null;
-  }>;
-  outputs: Array<{
-    idx: number;
-    value: number;
-    address: string | null;
-    script_type: string;
-    is_dust: boolean;
-  }>;
-}
 
 export function explain(db: Db, txid: string, profiles: readonly Profile[] = []): TxExplanation | null {
   const row = db.db

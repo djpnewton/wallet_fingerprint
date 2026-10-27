@@ -3,9 +3,9 @@
  * here, so both surfaces always agree.
  */
 
-import type { ClusterRow, Db } from './db.ts';
-import { parseLabels, walletsOf } from './db.ts';
-import { UNCLASSIFIED_CATEGORY } from './fingerprints.ts';
+import { parseLabels, walletsOf } from './rows.ts';
+import type { ClusterRow, TransactionListRow } from './rows.ts';
+import { UNCLASSIFIED_CATEGORY } from './rules.ts';
 import type { Category, Profile, WalletAttribution, WalletTag } from './types.ts';
 
 /**
@@ -43,13 +43,58 @@ export interface WalletCategoryRow {
   wallets: WalletAttribution[];
 }
 
+/** The corpus summary, identical in shape whichever store produced it. */
+export interface Summary {
+  total: number;
+  spam: number;
+  mempool: number;
+  confirmed: number;
+  dropped: number;
+  unknown: number;
+  weak: number;
+  /** Rows with at least one wallet tag, however weak. */
+  tagged: number;
+  /** Rows with an attribution at or above the weak threshold. */
+  attributed: number;
+  /** Rows classified by a rule set other than the current one. */
+  stale: number;
+  firstSeen: number | null;
+  lastSeen: number | null;
+  totalFees: number;
+  avgFeeRate: number;
+}
+
+/**
+ * Everything reporting needs from a corpus.
+ *
+ * `Db` (SQLite) and `MemoryCorpus` (the backend-free web build) both implement
+ * this, so the two surfaces cannot drift in how they count.
+ */
+export interface StatsSource {
+  summary(fingerprint?: string | null, options?: { excludeSpam?: boolean }): Summary;
+  labelCounts(limit?: number, options?: { excludeSpam?: boolean }): Array<{ label: string; txs: number }>;
+  profileCounts(limit?: number, options?: { excludeSpam?: boolean }): Array<{ profileId: string; txs: number }>;
+  categoryCounts(options?: { excludeSpam?: boolean }): Map<string, number>;
+  spamBreakdown(): Array<{ kind: string; txs: number }>;
+  researchClusters(
+    limit?: number,
+    minCount?: number,
+    options?: { includeWeak?: boolean; maxConfidence?: number; excludeSpam?: boolean },
+  ): ClusterRow[];
+  listTransactions(options?: {
+    limit?: number;
+    excludeSpam?: boolean;
+    unknownOnly?: boolean;
+  }): TransactionListRow[];
+}
+
 export interface StatsReport {
   generatedAt: number;
-  summary: ReturnType<Db['summary']>;
+  summary: Summary;
   /** Digest of the rule set currently loaded. */
   rulesFingerprint: string;
-  labels: ReturnType<Db['labelCounts']>;
-  profiles: ReturnType<Db['profileCounts']>;
+  labels: Array<{ label: string; txs: number }>;
+  profiles: Array<{ profileId: string; txs: number }>;
   clusters: ClusterRow[];
   recent: RecentRow[];
   spam: Array<{ kind: string; txs: number }>;
@@ -71,7 +116,7 @@ export interface RecentRow {
 }
 
 function fingerprintRows(
-  db: Db,
+  db: StatsSource,
   profiles: readonly Profile[],
   walletLimit: number,
   excludeSpam: boolean,
@@ -100,7 +145,7 @@ function fingerprintRows(
     .sort((a, b) => b.txs - a.txs || a.id.localeCompare(b.id));
 }
 
-export function toRecentRow(row: ReturnType<Db['listTransactions']>[number]): RecentRow {
+export function toRecentRow(row: TransactionListRow): RecentRow {
   return {
     txid: row.txid,
     first_seen_at: row.first_seen_at,
@@ -144,7 +189,7 @@ function mergeWallets(profiles: readonly Profile[]): WalletAttribution[] {
 }
 
 function categoryRows(
-  db: Db,
+  db: StatsSource,
   profiles: readonly Profile[],
   categories: readonly Category[],
   options: { excludeSpam?: boolean } = {},
@@ -192,7 +237,7 @@ function categoryRows(
 }
 
 export function buildStats(
-  db: Db,
+  db: StatsSource,
   rulesFingerprint: string,
   profiles: readonly Profile[],
   categories: readonly Category[],

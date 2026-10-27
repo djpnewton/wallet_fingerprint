@@ -1,0 +1,21 @@
+{
+  // The browser build may only touch these modules: everything else reaches
+  // node:sqlite, node:fs or node:crypto and would break the bundle. Listing the
+  // browser-safe set explicitly (rather than excluding the rest) means a new
+  // Node-only import fails here instead of at runtime in a user's browser.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": []
+  },
+  "include": [
+    "src/web/**/*.ts",
+    "src/features.ts",
+    "src/memory.ts",
+    "src/near-miss.ts",
+    "src/report.ts",
+    "src/rows.ts",
+    "src/rules.ts",
+    "src/types.ts"
+  ]
+}

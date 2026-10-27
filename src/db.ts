@@ -15,12 +15,11 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { isDustOutput } from './features.ts';
+import { bestWalletConfidence, WEAK_ATTRIBUTION_THRESHOLD } from './rows.ts';
+import type { ClusterRow, TransactionListRow } from './rows.ts';
 import type { ClassifiedTx, TxFeatures, WalletTag } from './types.ts';
 
 const SCHEMA_VERSION = 5;
-
-/** Matches below this best-wallet confidence are treated as research material. */
-export const WEAK_ATTRIBUTION_THRESHOLD = 0.35;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -185,38 +184,6 @@ export interface InsertOptions {
   now?: number;
   /** Digest of the rule set that produced this classification. */
   rulesFingerprint?: string | null;
-}
-
-export interface TransactionListRow {
-  txid: string;
-  first_seen_at: number;
-  status: string;
-  block_height: number | null;
-  version: number;
-  locktime: number;
-  fee: number;
-  fee_rate: number;
-  vsize: number;
-  input_count: number;
-  output_count: number;
-  wallet_count: number;
-  best_wallet_confidence: number;
-  is_unknown: number;
-  signature: string;
-  labels_json: string;
-  wallets_json: string;
-  spam_kind: string | null;
-  category_id: string | null;
-}
-
-export interface ClusterRow {
-  signature: string;
-  count: number;
-  examples: string[];
-  labels: string;
-  avg_fee_rate: number;
-  avg_inputs: number;
-  avg_outputs: number;
 }
 
 export class Db {
@@ -994,27 +961,10 @@ export class Db {
   }
 }
 
-/** Highest plausibility among a transaction's wallet tags (0 when untagged). */
-export function bestWalletConfidence(wallets: readonly WalletTag[]): number {
-  let best = 0;
-  for (const wallet of wallets) {
-    if (wallet.confidence > best) best = wallet.confidence;
-  }
-  return Number(best.toFixed(3));
-}
-
-export function walletsOf(row: { wallets_json: string }): WalletTag[] {
-  try {
-    return JSON.parse(row.wallets_json) as WalletTag[];
-  } catch {
-    return [];
-  }
-}
-
-export function parseLabels(row: { labels_json: string }): string[] {
-  try {
-    return JSON.parse(row.labels_json) as string[];
-  } catch {
-    return [];
-  }
-}
+export {
+  bestWalletConfidence,
+  parseLabels,
+  walletsOf,
+  WEAK_ATTRIBUTION_THRESHOLD,
+} from './rows.ts';
+export type { ClusterRow, TransactionListRow } from './rows.ts';
