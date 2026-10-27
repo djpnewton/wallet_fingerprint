@@ -1,5 +1,8 @@
 # wallet-fingerprint
 
+[![CI](https://github.com/djpnewton/wallet_fingerprint/actions/workflows/ci.yml/badge.svg)](https://github.com/djpnewton/wallet_fingerprint/actions/workflows/ci.yml)
+[![live demo](https://img.shields.io/badge/live%20demo-djpsoft.com%2Fwallet__fingerprint-2ea043)](https://djpsoft.com/wallet_fingerprint/)
+
 Logs the Bitcoin mempool through the [mempool.space](https://mempool.space) API and
 tags every transaction with the wallet software whose fingerprint it plausibly
 carries. Unmatched transactions — and transactions that only match weakly — are
@@ -271,6 +274,9 @@ unrecoverable, and `classify` reports their count explicitly.
 `npm run build:web` produces `dist/web/` — `index.html` and a single `app.js` —
 and there is nothing else. No database, no server, no storage. Open the folder
 from any static host and the page classifies the live mempool in the browser.
+
+A built copy is published to GitHub Pages on every push to `main`:
+**<https://djpsoft.com/wallet_fingerprint/>**
 
 ```bash
 npm run build:web
