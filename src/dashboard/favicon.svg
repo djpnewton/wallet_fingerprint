@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>Mempool wallet fingerprints</title>
+  <rect width="64" height="64" rx="14" fill="#0a0e13" />
+  <g fill="none" stroke="#f7931a" stroke-linecap="round" stroke-width="5">
+    <path d="M10 44V31a22 22 0 0 1 44 0v13" />
+    <path d="M19 44V31a13 13 0 0 1 26 0v13" />
+    <path d="M32 32a4.5 4.5 0 0 1 4.5 4.5V44" />
+  </g>
+</svg>

@@ -27,6 +27,7 @@ export interface DashboardOptions {
 }
 
 const INDEX_HTML = readFileSync(new URL('./index.html', import.meta.url), 'utf8');
+const FAVICON_SVG = readFileSync(new URL('./favicon.svg', import.meta.url), 'utf8');
 
 function json(res: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
@@ -100,6 +101,15 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
     if (path === '/' || path === '/index.html') {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
       res.end(INDEX_HTML);
+      return;
+    }
+
+    if (path === '/favicon.svg') {
+      res.writeHead(200, {
+        'content-type': 'image/svg+xml; charset=utf-8',
+        'cache-control': 'public, max-age=86400',
+      });
+      res.end(FAVICON_SVG);
       return;
     }
 

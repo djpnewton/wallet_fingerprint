@@ -68,6 +68,12 @@ test('the dashboard serves the page and stats payload', async () => {
     assert.match(html, /data-tab="fingerprints"/);
     assert.match(html, /id="panel-wallets"/);
     assert.match(html, /function renderCategories/);
+    // The tab icon is served next to the page, never fetched from a CDN.
+    assert.match(html, /<link rel="icon" href="\.\/favicon\.svg" type="image\/svg\+xml"/);
+    const favicon = await fetch(`${base}/favicon.svg`);
+    assert.equal(favicon.status, 200);
+    assert.match(favicon.headers.get('content-type') ?? '', /^image\/svg\+xml/);
+    assert.match(await favicon.text(), /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
 
     const stats = await fetch(`${base}/api/stats`);
     assert.equal(stats.status, 200);

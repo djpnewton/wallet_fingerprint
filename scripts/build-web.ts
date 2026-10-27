@@ -1,11 +1,13 @@
 /**
  * Builds the backend-free web version into `dist/web/`.
  *
- * Two things happen here that the Node build never needs:
+ * A few things happen here that the Node build never needs:
  *  - the rule set is inlined as text, so the page needs no rules request;
  *  - the dashboard markup is copied verbatim from `src/dashboard/index.html`
  *    and given an `app.js` tag, so one renderer serves both the served
- *    dashboard and the static page.
+ *    dashboard and the static page;
+ *  - the favicon is copied next to the page, so the static page has the icon
+ *    the Node server serves instead of a 404.
  */
 
 import { build } from 'esbuild';
@@ -43,6 +45,7 @@ if (at < 0) throw new Error('dashboard page has no inline renderer script to pre
 // the inline script rather than at the end of the body.
 const injected = page.slice(0, at) + `    ${APP_TAG}\n` + page.slice(at);
 writeFileSync(resolve(OUT, 'index.html'), injected);
+copyFileSync(resolve(ROOT, 'src', 'dashboard', 'favicon.svg'), resolve(OUT, 'favicon.svg'));
 
 /**
  * GitHub Pages takes the custom domain from a CNAME file at the *root of the

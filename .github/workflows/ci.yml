@@ -66,11 +66,13 @@ jobs:
           set -eu
           test -f dist/web/index.html
           test -f dist/web/app.js
+          test -f dist/web/favicon.svg
           if grep -qE 'require\("node:|from"node:' dist/web/app.js; then
             echo "::error::bundle imports a Node built-in and must not ship"
             exit 1
           fi
           grep -q '<script src="./app.js"></script>' dist/web/index.html
+          grep -q '<link rel="icon" href="./favicon.svg"' dist/web/index.html
           # A custom domain only survives if the CNAME reaches the artifact, so a
           # root CNAME that failed to copy is a deployment bug, not a warning.
           if [ -f CNAME ]; then

@@ -271,9 +271,10 @@ unrecoverable, and `classify` reports their count explicitly.
 
 ## Static web build (no backend)
 
-`npm run build:web` produces `dist/web/` — `index.html` and a single `app.js` —
-and there is nothing else. No database, no server, no storage. Open the folder
-from any static host and the page classifies the live mempool in the browser.
+`npm run build:web` produces `dist/web/` — `index.html`, a single `app.js` and
+the `favicon.svg` the page asks for — and there is nothing else. No database, no
+server, no storage. Open the folder from any static host and the page classifies
+the live mempool in the browser.
 
 A built copy is published to GitHub Pages on every push to `main`:
 **<https://fingerprint.macrodash.me/>**
