@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push supersedes an in-flight run on the same ref, but never cancels a
+# run on main: that one is the record of what is actually on the branch.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor is deliberate: node:sqlite and type-stripped TypeScript need
+        # >= 22.18. 24 is the next LTS and must not break silently.
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck (Node + browser surfaces)
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+  web:
+    name: static web build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build:web
+
+      # A browser bundle that reaches for a Node built-in fails here rather than
+      # in front of a visitor, so the artifact is also an assertion.
+      - name: Assert the bundle is self-contained
+        run: |
+          set -eu
+          test -f dist/web/index.html
+          test -f dist/web/app.js
+          if grep -qE 'require\("node:|from"node:' dist/web/app.js; then
+            echo "::error::bundle imports a Node built-in and must not ship"
+            exit 1
+          fi
+          grep -q '<script src="./app.js"></script>' dist/web/index.html
+          printf 'app.js %s bytes\n' "$(wc -c < dist/web/app.js)"
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: dist/web
+          retention-days: 7

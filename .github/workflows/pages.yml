@@ -1,0 +1,69 @@
+name: Publish web build
+
+# Publishes the backend-free version to GitHub Pages on every push to main.
+# The deployed site is a static page that talks to mempool.space directly, so
+# there is nothing to host beyond the two files in dist/web.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let an in-flight deployment finish rather than cancelling it mid-publish;
+# queuing the next one is enough.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # The rule set is inlined at build time, so a rules change ships with the
+      # page automatically — there is no second thing to keep in sync.
+      - name: Build static site
+        run: npm run build:web
+
+      - name: Assert the bundle is self-contained
+        run: |
+          set -eu
+          test -f dist/web/index.html
+          test -f dist/web/app.js
+          if grep -qE 'require\("node:|from"node:' dist/web/app.js; then
+            echo "::error::bundle imports a Node built-in and must not ship"
+            exit 1
+          fi
+          grep -q '<script src="./app.js"></script>' dist/web/index.html
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/web
+
+  deploy:
+    name: deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
