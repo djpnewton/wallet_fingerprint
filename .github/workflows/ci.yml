@@ -71,6 +71,11 @@ jobs:
             exit 1
           fi
           grep -q '<script src="./app.js"></script>' dist/web/index.html
+          # A custom domain only survives if the CNAME reaches the artifact, so a
+          # root CNAME that failed to copy is a deployment bug, not a warning.
+          if [ -f CNAME ]; then
+            cmp CNAME dist/web/CNAME
+          fi
           printf 'app.js %s bytes\n' "$(wc -c < dist/web/app.js)"
 
       - name: Upload build

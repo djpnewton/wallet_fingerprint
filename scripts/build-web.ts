@@ -9,7 +9,7 @@
  */
 
 import { build } from 'esbuild';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -44,6 +44,16 @@ if (at < 0) throw new Error('dashboard page has no inline renderer script to pre
 const injected = page.slice(0, at) + `    ${APP_TAG}\n` + page.slice(at);
 writeFileSync(resolve(OUT, 'index.html'), injected);
 
+/**
+ * GitHub Pages takes the custom domain from a CNAME file at the *root of the
+ * deployed artifact*, so it has to travel with the bundle — a copy left behind
+ * in the repository would not reach the site.
+ */
+const cnameSource = resolve(ROOT, 'CNAME');
+const customDomain = existsSync(cnameSource) ? readFileSync(cnameSource, 'utf8').trim() : '';
+if (customDomain) copyFileSync(cnameSource, resolve(OUT, 'CNAME'));
+
 const bytes = Object.values(result.metafile.outputs).reduce((sum, o) => sum + o.bytes, 0);
 const kib = (bytes / 1024).toFixed(1);
-process.stdout.write(`built dist/web/ (app.js ${kib} KiB)\n`);
+const domainNote = customDomain ? `, CNAME ${customDomain}` : '';
+process.stdout.write(`built dist/web/ (app.js ${kib} KiB${domainNote})\n`);

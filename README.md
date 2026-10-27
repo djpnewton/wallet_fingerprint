@@ -1,7 +1,7 @@
 # wallet-fingerprint
 
 [![CI](https://github.com/djpnewton/wallet_fingerprint/actions/workflows/ci.yml/badge.svg)](https://github.com/djpnewton/wallet_fingerprint/actions/workflows/ci.yml)
-[![live demo](https://img.shields.io/badge/live%20demo-djpsoft.com%2Fwallet__fingerprint-2ea043)](https://djpsoft.com/wallet_fingerprint/)
+[![live demo](https://img.shields.io/badge/live%20demo-fingerprint.macrodash.me-2ea043)](https://fingerprint.macrodash.me/)
 
 Logs the Bitcoin mempool through the [mempool.space](https://mempool.space) API and
 tags every transaction with the wallet software whose fingerprint it plausibly
@@ -276,7 +276,15 @@ and there is nothing else. No database, no server, no storage. Open the folder
 from any static host and the page classifies the live mempool in the browser.
 
 A built copy is published to GitHub Pages on every push to `main`:
-**<https://djpsoft.com/wallet_fingerprint/>**
+**<https://fingerprint.macrodash.me/>**
+
+The custom domain lives in [`CNAME`](./CNAME) and is copied into the artifact by
+the build, because Pages reads the domain from the deployed root — a copy left in
+the repository alone would never reach the site. DNS is a single record:
+
+```
+fingerprint.macrodash.me.  CNAME  djpnewton.github.io.
+```
 
 ```bash
 npm run build:web
