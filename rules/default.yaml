@@ -1,0 +1,962 @@
+# Wallet fingerprint profiles.
+#
+# Each profile is one *observable behavioural signature* plus the wallet software
+# that plausibly emits it. Matching is independent per profile, so a transaction
+# can (and usually should) carry several candidate wallets: signature space is
+# shared, and pretending otherwise invents precision that does not exist.
+#
+# Fields
+#   id          kebab-case unique id
+#   family      coarse grouping (core-derived, coinjoin, exchange, protocol, ...)
+#   confidence  how strongly this signature identifies the *behaviour* (0, 1]
+#   match.all   every condition must hold
+#   match.any   at least one condition must hold (ANDed with match.all)
+#   wallets     candidate software; `confidence` is plausibility *given* the
+#               signature. Label quality > named-actor guessing: for exchange
+#               batching the generic entry is deliberately the strongest.
+#   labels      behaviour/protocol tags, independent of wallet attribution
+#   evidence    why the signature looks the way it does
+#
+# Operators: eq ne in notIn gte gt lte lt between contains notContains
+#            containsAny containsAll containsNone subsetOf exists absent
+#
+# Feature names are listed in docs/FEATURES.md and validated at load time.
+
+version: 1
+
+profiles:
+  # ---------------------------------------------------------------- core-derived
+  - id: core-rbf-tip-locktime
+    family: core-derived
+    title: Segwit spend, tip-height locktime, RBF signalled
+    summary: >-
+      nVersion 2, nLockTime pinned near the chain tip, every input signalling
+      BIP125 replaceability. This is the default draft of most modern
+      Bitcoin-Core-derived wallets, so it narrows the software but not the
+      specific wallet.
+    confidence: 0.85
+    evidence:
+      - 'Bitcoin Core sets nLockTime to the current height for anti-fee-sniping'
+      - 'Core and Electrum signal RBF with sequence 0xfffffffd by default'
+      - 'Segwit inputs mean the wallet can spend its own native segwit change'
+    match:
+      all:
+        - { feature: version, op: eq, value: 2 }
+        - { feature: locktime_class, op: eq, value: tip_height }
+        - { feature: sequence_profile, op: eq, value: all_rbf }
+        - { feature: segwit_inputs, op: gte, value: 1 }
+    # Limited to wallets documented to build this exact transaction (Core and the
+    # coordinators that drive it). Multisig-only services (Casa, Keeper) and
+    # wallets with their own backend were previously listed here and each picked
+    # up ~230 nominally "confident" tags without any evidence: a profile naming
+    # eleven wallets is not a fingerprint.
+    wallets:
+      - { name: Bitcoin Core, confidence: 0.9, note: 'default descriptor wallet, RBF on' }
+      - { name: Electrum, confidence: 0.7, note: 'nLockTime = height since 4.0, RBF default' }
+      - { name: Sparrow Wallet, confidence: 0.65, note: 'Core backend' }
+      - { name: Nunchuk, confidence: 0.6, note: 'Core backend' }
+      - { name: Specter Desktop, confidence: 0.5, note: 'Core backend' }
+      - { name: generic Core-derived wallet, confidence: 0.45, kind: archetype }
+    labels: [behavior:antifid, behavior:rbf, policy:tip-locktime]
+
+  - id: core-final-tip-locktime
+    family: core-derived
+    title: Segwit spend, tip-height locktime, no RBF
+    summary: >-
+      Anti-fee-sniping locktime with fully final sequences: a Core-style wallet
+      with RBF disabled (or a legacy Core wallet sending to segwit outputs).
+    confidence: 0.8
+    evidence:
+      - 'Identical nLockTime policy to Bitcoin Core but sequence 0xffffffff everywhere'
+    match:
+      all:
+        - { feature: version, op: eq, value: 2 }
+        - { feature: locktime_class, op: eq, value: tip_height }
+        - { feature: sequence_profile, op: eq, value: all_final }
+        - { feature: segwit_inputs, op: gte, value: 1 }
+    wallets:
+      - { name: Bitcoin Core, confidence: 0.75, note: 'RBF disabled' }
+      - { name: Electrum, confidence: 0.5, note: 'RBF disabled' }
+      - { name: Sparrow Wallet, confidence: 0.45, note: 'RBF disabled' }
+      - { name: Nunchuk, confidence: 0.4 }
+      - { name: Specter Desktop, confidence: 0.35 }
+      - { name: generic Core-derived wallet, confidence: 0.4, kind: archetype }
+    labels: [behavior:antifid, policy:no-rbf, policy:tip-locktime]
+
+  - id: v2-locktime0-rbf
+    family: locktime-zero
+    title: Segwit spend, nLockTime 0, RBF signalled
+    summary: >-
+      No anti-fee-sniping at all but BIP125 signalling: typical of several
+      mobile and hardware-app wallets whose transaction builders leave nLockTime
+      at zero.
+    confidence: 0.6
+    evidence:
+      - 'nLockTime 0 means either a builder with no anti-fee-sniping or a deliberate opt-out'
+      - '0xfffffffd sequences show BIP125 support, so this is not legacy software'
+    match:
+      all:
+        - { feature: version, op: eq, value: 2 }
+        - { feature: locktime_class, op: eq, value: none }
+        - { feature: sequence_profile, op: eq, value: all_rbf }
+        - { feature: segwit_inputs, op: gte, value: 1 }
+    # No named wallets here on purpose. nLockTime 0 + RBF + segwit is close to
+    # the modal shape of the modern mempool, so every named wallet this profile
+    # used to list was really an artefact of the bucket's size (see "specificity"
+    # in the README). Only the generic descriptor belongs.
+    wallets:
+      - { name: generic modern segwit wallet, confidence: 0.5, kind: archetype, note: 'shared builder behaviour' }
+    labels: [behavior:no-antifid, behavior:rbf]
+
+  - id: v2-locktime0-final
+    family: locktime-zero
+    title: Segwit spend, nLockTime 0, no RBF
+    summary: >-
+      Non-replaceable segwit transaction without anti-fee-sniping. Common for
+      custodial withdrawal engines and wallets that never signal RBF.
+    confidence: 0.5
+    evidence:
+      - 'Custodial senders often build with nLockTime 0 and final sequences'
+    match:
+      all:
+        - { feature: version, op: eq, value: 2 }
+        - { feature: locktime_class, op: eq, value: none }
+        - { feature: sequence_profile, op: eq, value: all_final }
+        - { feature: segwit_inputs, op: gte, value: 1 }
+    # Same reasoning as above: this bucket is a shape, not a vendor list.
+    wallets:
+      - { name: generic custodial send, confidence: 0.5, kind: archetype }
+    labels: [behavior:no-antifid, policy:no-rbf]
+
+  # -------------------------------------------------------------------- legacy
+  - id: legacy-v1-p2pkh
+    family: legacy
+    title: Legacy v1 P2PKH transaction, no RBF
+    summary: >-
+      Everything still on pre-segwit rails: nVersion 1, nLockTime 0, all P2PKH,
+      final sequences. Older wallets and some custodial systems still send this.
+    confidence: 0.6
+    evidence:
+      - 'nVersion 1 with all-final sequences predates BIP125/BIP68 defaults'
+    match:
+      all:
+        - { feature: version, op: eq, value: 1 }
+        - { feature: input_type_profile, op: eq, value: p2pkh }
+        - { feature: output_types, op: subsetOf, value: [p2pkh, op_return] }
+        - { feature: sequence_profile, op: eq, value: all_final }
+    wallets:
+      - { name: legacy P2PKH wallet, confidence: 0.6, kind: archetype }
+      - { name: Bitcoin Core, confidence: 0.45, note: 'pre-segwit wallet or -addresstype=legacy' }
+      - { name: Bitcoin Wallet for Android, confidence: 0.5 }
+      - { name: Electrum, confidence: 0.4, note: 'legacy seed / legacy address type' }
+      - { name: Blockchain.com, confidence: 0.35 }
+      - { name: Exodus, confidence: 0.3, note: 'legacy address type' }
+      - { name: Trust Wallet, confidence: 0.3 }
+    labels: [era:legacy, policy:no-rbf]
+
+  - id: legacy-segwit-migration
+    family: legacy
+    title: Legacy inputs paying to segwit outputs
+    summary: >-
+      Spending P2PKH/P2SH UTXOs while paying to segwit addresses: a wallet that
+      has upgraded address formats but holds old coins.
+    confidence: 0.55
+    evidence:
+      - 'Mixed-era script types in one transaction indicate a format migration'
+    match:
+      all:
+        - { feature: legacy_inputs, op: gte, value: 1 }
+        - { feature: output_types, op: containsAny, value: [v0_p2wpkh, v1_p2tr, v0_p2wsh] }
+        - { feature: version, op: eq, value: 2 }
+    wallets:
+      - { name: Bitcoin Core, confidence: 0.5, note: 'legacy wallet spending to bech32' }
+      - { name: Electrum, confidence: 0.5 }
+      - { name: Exodus, confidence: 0.35 }
+      - { name: Blockchain.com, confidence: 0.3 }
+      - { name: Coinbase, confidence: 0.25 }
+    labels: [policy:segwit-migration]
+
+  - id: nested-segwit-p2sh
+    family: segwit
+    title: Nested segwit (P2SH-P2WPKH only)
+    summary: >-
+      Every input and output is P2SH with a P2WPKH witness: wallets configured
+      for wrapped segwit, either for compatibility or because the account is old.
+    confidence: 0.55
+    evidence:
+      - 'p2sh_p2wpkh witness shape is only used by wrapped-segwit signers'
+    match:
+      all:
+        - { feature: nested_segwit_inputs, op: gte, value: 1 }
+        - { feature: input_type_profile, op: eq, value: p2sh }
+        - { feature: output_types, op: subsetOf, value: [p2sh, op_return] }
+    wallets:
+      - { name: Trezor Suite, confidence: 0.45, note: 'wrapped segwit account' }
+      - { name: Ledger Live, confidence: 0.45, note: 'wrapped segwit account' }
+      - { name: Exodus, confidence: 0.4 }
+      - { name: Electrum, confidence: 0.35 }
+      - { name: Coinbase, confidence: 0.3 }
+      - { name: Blockchain.com, confidence: 0.3 }
+    labels: [policy:nested-segwit]
+
+  # ------------------------------------------------------------------ coinjoin
+  - id: whirlpool-coinjoin
+    family: coinjoin
+    title: Whirlpool-style CoinJoin (5+ equal denomination outputs)
+    summary: >-
+      Five or six equal-value outputs drawn from a fixed denomination pool with
+      a small change output: the Whirlpool Cycle template.
+    confidence: 0.8
+    evidence:
+      - 'Whirlpool cycles use 5-input / 5-equal-output denominations plus change'
+      - 'Output values within a cycle are identical, not merely similar'
+    match:
+      all:
+        - { feature: is_coinjoin_like, op: eq, value: true }
+        - { feature: equal_output_max, op: gte, value: 5 }
+        - { feature: output_count, op: between, value: [5, 7] }
+        - { feature: version, op: eq, value: 2 }
+    wallets:
+      - { name: Samourai Whirlpool, confidence: 0.85 }
+      - { name: Ashigaru Whirlpool, confidence: 0.7 }
+      - { name: Sparrow Wallet, confidence: 0.5, note: 'Whirlpool client' }
+    labels: [type:coinjoin, protocol:whirlpool, privacy:on]
+
+  - id: coinjoin-large-equal
+    family: coinjoin
+    title: Large CoinJoin (8+ equal outputs)
+    summary: >-
+      Many equal-value outputs across a larger anonymity set: a WabiSabi-style
+      or other multi-party CoinJoin.
+    confidence: 0.75
+    evidence:
+      - 'Large equal-output sets cannot be explained by ordinary payment batching'
+    match:
+      all:
+        - { feature: is_coinjoin_like, op: eq, value: true }
+        - { feature: equal_output_max, op: gte, value: 8 }
+        - { feature: output_count, op: gte, value: 8 }
+    wallets:
+      - { name: Wasabi Wallet, confidence: 0.75, note: 'WabiSabi CoinJoin' }
+      - { name: Samourai Whirlpool, confidence: 0.4 }
+      - { name: Ashigaru Whirlpool, confidence: 0.35 }
+    labels: [type:coinjoin, privacy:on]
+
+  - id: coinjoin-generic
+    family: coinjoin
+    title: CoinJoin-shaped transaction (3+ equal outputs)
+    summary: >-
+      Equal-value output groups that look collaborative but do not match the
+      known Whirlpool/WabiSabi templates.
+    confidence: 0.55
+    evidence:
+      - 'Equal outputs are the structural signature of collaborative transactions'
+    match:
+      all:
+        - { feature: is_coinjoin_like, op: eq, value: true }
+    wallets:
+      - { name: generic CoinJoin implementation, confidence: 0.6, kind: archetype }
+      - { name: Samourai Whirlpool, confidence: 0.3 }
+      - { name: Wasabi Wallet, confidence: 0.3 }
+    labels: [type:coinjoin, privacy:on]
+
+  # ------------------------------------------------------------------ exchange
+  - id: exchange-batch-payout
+    family: exchange
+    title: Batched payout (10+ outputs, one script type)
+    summary: >-
+      A single transaction paying many distinct recipients of the same address
+      type: the shape of a custodial withdrawal engine.
+    confidence: 0.6
+    evidence:
+      - 'Batching amortises fees across many customer withdrawals'
+      - 'One output script type across 10+ outputs indicates a single controlled pipeline'
+    match:
+      all:
+        - { feature: is_payment_batching, op: eq, value: true }
+        - { feature: output_count, op: gte, value: 10 }
+        - { feature: all_outputs_same_type, op: eq, value: true }
+        - { feature: has_op_return, op: eq, value: false }
+    wallets:
+      - { name: custodial exchange batcher, confidence: 0.65, kind: archetype }
+      - { name: Coinbase, confidence: 0.45 }
+      - { name: Binance, confidence: 0.4 }
+      - { name: Kraken, confidence: 0.35 }
+      - { name: OKX Wallet, confidence: 0.35 }
+      - { name: Bitfinex, confidence: 0.3 }
+      - { name: Bybit, confidence: 0.3 }
+      - { name: payment processor batcher, confidence: 0.4, kind: archetype }
+    labels: [type:batch-payout, actor:custodial]
+
+  - id: batched-withdrawal-small
+    family: exchange
+    title: Small batch (5-9 outputs, one script type)
+    summary: >-
+      A moderate fan-out to distinct recipients, typical of smaller custodial
+      services and wallet "send to many" features.
+    confidence: 0.45
+    evidence:
+      - 'Fan-out without equal values rules out CoinJoin'
+    match:
+      all:
+        - { feature: is_payment_batching, op: eq, value: true }
+        - { feature: output_count, op: between, value: [5, 9] }
+        - { feature: all_outputs_same_type, op: eq, value: true }
+    wallets:
+      - { name: custodial service, confidence: 0.45, kind: archetype }
+      - { name: send-many feature, confidence: 0.4, kind: archetype }
+      - { name: Coinbase, confidence: 0.3 }
+      - { name: Binance, confidence: 0.3 }
+      - { name: Kraken, confidence: 0.25 }
+    labels: [type:batch-payout]
+
+  - id: consolidation-sweep
+    family: behavior
+    title: UTXO consolidation
+    summary: >-
+      Many inputs collapsing into one or two outputs: a wallet (or custodian)
+      cleaning up its UTXO set.
+    confidence: 0.5
+    evidence:
+      - 'High fan-in with minimal fan-out is economically pointless unless consolidating'
+    match:
+      all:
+        - { feature: is_consolidation, op: eq, value: true }
+        - { feature: all_outputs_same_type, op: eq, value: true }
+    wallets:
+      - { name: generic consolidation, confidence: 0.55, kind: archetype }
+      - { name: Sparrow Wallet, confidence: 0.35, note: 'UTXO consolidation tool' }
+      - { name: Electrum, confidence: 0.3 }
+      - { name: Bitcoin Core, confidence: 0.3 }
+      - { name: custodial exchange, confidence: 0.35, kind: archetype }
+    labels: [type:consolidation]
+
+  # ------------------------------------------------------- ordering / policies
+  - id: bip69-ordering
+    family: policy
+    title: BIP69 deterministic ordering
+    summary: >-
+      Inputs sorted by outpoint and outputs sorted by script: a deliberate
+      determinism policy, not a default of most wallets.
+    confidence: 0.5
+    evidence:
+      - 'BIP69 removes ordering as a source of wallet fingerprint entropy'
+    match:
+      all:
+        - { feature: bip69_inputs, op: eq, value: true }
+        - { feature: bip69_outputs, op: eq, value: true }
+    wallets:
+      - { name: Wasabi Wallet, confidence: 0.5, note: 'BIP69 by default' }
+      - { name: Samourai Whirlpool, confidence: 0.45 }
+      - { name: Ashigaru Whirlpool, confidence: 0.4 }
+      - { name: Electrum, confidence: 0.3, note: 'opt-in' }
+      - { name: Sparrow Wallet, confidence: 0.25, note: 'opt-in' }
+      - { name: BTCPay Server, confidence: 0.3 }
+    labels: [policy:bip69]
+
+  - id: address-reuse
+    family: behavior
+    title: Reused address in the same transaction
+    summary: >-
+      An input address reappears among the outputs. Usually a custodial back-end
+      or a wallet without change-address rotation.
+    confidence: 0.4
+    evidence:
+      - 'Well-behaved wallets derive a fresh change address per transaction'
+    match:
+      all:
+        - { feature: address_reuse, op: eq, value: true }
+    # Address reuse is endemic in spam and bot traffic (≈70% of the corpus), so
+    # it is a behaviour label, not a wallet signature.
+    wallets:
+      - { name: generic wallet without address rotation, confidence: 0.4, kind: archetype }
+    labels: [behavior:address-reuse, privacy:off]
+
+  - id: dust-attached
+    family: behavior
+    title: Dust output attached
+    summary: >-
+      A below-dust-threshold output on a small transaction, the shape of
+      address-poisoning or dusting attacks.
+    confidence: 0.4
+    evidence:
+      - 'Honest wallets do not create unspendable-value outputs on purpose'
+    match:
+      all:
+        - { feature: has_dust_output, op: eq, value: true }
+        - { feature: output_count, op: lte, value: 3 }
+    wallets:
+      - { name: address-poisoning bot, confidence: 0.45, kind: archetype }
+      - { name: dusting attacker, confidence: 0.35, kind: archetype }
+    labels: [behavior:dust, risk:address-poisoning]
+
+  - id: round-value-payments
+    family: behavior
+    title: All outputs are round amounts
+    summary: >-
+      Every output is a multiple of 1000 sats on a small transaction: a payment
+      bot or a service paying fixed prices.
+    confidence: 0.35
+    evidence:
+      - 'Wallet change is almost never a round number, so round-only outputs imply no change'
+    match:
+      all:
+        - { feature: all_outputs_round_1000, op: eq, value: true }
+        - { feature: output_count, op: lte, value: 3 }
+        - { feature: has_op_return, op: eq, value: false }
+        - { feature: has_dust_output, op: eq, value: false }
+    wallets:
+      - { name: payment processor / bot, confidence: 0.4, kind: archetype }
+    labels: [behavior:round-values]
+
+  - id: mixed-sequence-coin-control
+    family: behavior
+    title: Mixed sequence numbers
+    summary: >-
+      Inputs carry different sequence values without a CoinJoin shape: the
+      result of per-input RBF/locktime policy or coin-control tooling.
+    confidence: 0.3
+    evidence:
+      - 'Most wallets write one sequence value for every input'
+    match:
+      all:
+        - { feature: sequence_profile, op: eq, value: mixed }
+        - { feature: distinct_sequence_values, op: gte, value: 2 }
+        - { feature: is_coinjoin_like, op: eq, value: false }
+        - { feature: input_count, op: gte, value: 2 }
+    wallets:
+      - { name: coin-control tooling, confidence: 0.35, kind: archetype }
+      - { name: Samourai Wallet, confidence: 0.3 }
+      - { name: Sparrow Wallet, confidence: 0.3 }
+      - { name: custom / scripted signer, confidence: 0.35, kind: archetype }
+    labels: [behavior:mixed-sequence]
+
+  - id: timestamp-locktime
+    family: policy
+    title: Wall-clock nLockTime
+    summary: >-
+      nLockTime is a current unix timestamp rather than a block height, which is
+      rare and usually points at custom tooling.
+    confidence: 0.4
+    evidence:
+      - 'Most wallets use block height or zero; timestamps are an unusual choice'
+    match:
+      all:
+        - { feature: locktime_class, op: eq, value: current_time }
+    wallets:
+      - { name: custom / scripted signer, confidence: 0.45, kind: archetype }
+      - { name: non-Bitcoin-Core wallet implementation, confidence: 0.3, kind: archetype }
+    labels: [policy:timestamp-locktime]
+
+  - id: relative-locktime
+    family: policy
+    title: BIP68 relative locktime in use
+    summary: >-
+      At least one input carries an active relative locktime, which normal
+      payments never set.
+    confidence: 0.5
+    evidence:
+      - 'BIP68 sequences encode age constraints; Lightning and vaults use them'
+    match:
+      all:
+        - { feature: has_relative_locktime, op: eq, value: true }
+    wallets:
+      - { name: Lightning channel peer, confidence: 0.4, kind: archetype }
+      - { name: timelocked vault, confidence: 0.4, kind: archetype }
+      - { name: custom / scripted signer, confidence: 0.35, kind: archetype }
+    labels: [policy:relative-locktime]
+
+  # ------------------------------------------------------------------ taproot
+  - id: taproot-keypath-only
+    family: taproot
+    title: Taproot key-path spend
+    summary: >-
+      Taproot inputs spent through the key path only: a wallet that has adopted
+      P2TR for ordinary payments.
+    confidence: 0.45
+    evidence:
+      - 'Single-item P2TR witness is a key-path signature'
+    match:
+      all:
+        - { feature: taproot_inputs, op: gte, value: 1 }
+        - { feature: p2tr_scriptpath_inputs, op: eq, value: 0 }
+    # A key-path spend only says the wallet can pay to P2TR. Wallets whose actual
+    # signature is sharper are attributed elsewhere: Muun spends P2WSH multisig,
+    # Ordinals wallets are caught by the inscription envelope, and Phoenix by its
+    # anchor output. Listing them here only produced noise.
+    wallets:
+      - { name: generic taproot wallet, confidence: 0.45, kind: archetype }
+      - { name: Bitcoin Core, confidence: 0.4, note: 'taproot address type' }
+      - { name: Sparrow Wallet, confidence: 0.4 }
+      - { name: Nunchuk, confidence: 0.35 }
+      - { name: Phoenix, confidence: 0.2, note: 'taproot on-chain splicing' }
+    labels: [policy:taproot]
+
+  - id: taproot-scriptpath
+    family: taproot
+    title: Taproot script-path spend
+    summary: >-
+      A taproot input revealed a script (multi-leaf witness): vaults, Lightning
+      force-closes, and Ordinals transfers.
+    confidence: 0.55
+    evidence:
+      - 'More than one witness item on P2TR means a script path was used'
+    match:
+      all:
+        - { feature: p2tr_scriptpath_inputs, op: gte, value: 1 }
+    wallets:
+      - { name: miniscript vault, confidence: 0.4, kind: archetype }
+      - { name: Lightning channel peer, confidence: 0.35, kind: archetype }
+      - { name: Ordinals tooling, confidence: 0.3, kind: archetype }
+      - { name: custom / scripted signer, confidence: 0.3, kind: archetype }
+    labels: [policy:taproot, policy:script-path]
+
+  # Miniscript vaults reveal a timelock in the witness script: a branch guarded
+  # by OP_CSV (relative) or OP_CLTV (absolute). Ordinary payment wallets never
+  # produce this shape, which makes it one of the strongest on-chain signals
+  # available — 1,652 such inputs in observed traffic.
+  - id: miniscript-relative-timelock
+    family: miniscript
+    title: Miniscript vault with a relative timelock (CSV)
+    summary: >-
+      A witness script commits to a relative locktime branch, e.g.
+      IF <key> ELSE <n> CSV DROP <key> ENDIF: spendable immediately by one path
+      and, after n blocks, by a recovery path.
+    confidence: 0.8
+    evidence:
+      - 'OP_CSV appears in the revealed witness script after a real opcode walk (not a byte scan)'
+      - 'Observed CSV values cluster at 1008 blocks (1 week), 8064 (8 weeks) and 144 (1 day)'
+      - 'Payment wallets do not embed recovery timelocks in their scripts'
+    match:
+      all:
+        - { feature: timelock_inputs, op: gte, value: 1 }
+        - { feature: witness_csv_values, op: exists }
+    wallets:
+      - { name: Liana, confidence: 0.5, note: 'Miniscript wallet built around timelocked recovery' }
+      - { name: Nunchuk, confidence: 0.25, note: 'timelocked Miniscript plans' }
+      - { name: Specter Desktop, confidence: 0.2, note: 'Miniscript support' }
+      - { name: generic Miniscript vault, confidence: 0.5, kind: archetype }
+    labels: [policy:miniscript, policy:relative-timelock]
+
+  - id: miniscript-csv-1008
+    family: miniscript
+    title: Miniscript vault, one-week (1008 block) recovery delay
+    summary: >-
+      The dominant timelocked template in observed traffic: a 1008-block CSV
+      operand, i.e. a one-week recovery delay. Volume concentration in one exact
+      template implies a single product or default.
+    confidence: 0.75
+    evidence:
+      - '610 of 1,652 timelocked inputs carry exactly the 1008-block CSV'
+      - 'A shared recovery default is a stronger signal than the shape alone'
+    match:
+      all:
+        - { feature: witness_csv_values, op: contains, value: 1008 }
+    wallets:
+      - { name: generic Miniscript vault (1-week recovery), confidence: 0.6, kind: archetype }
+      - { name: Liana, confidence: 0.35, note: 'default recovery delays are configurable' }
+    labels: [policy:miniscript, policy:csv-1008]
+
+  - id: miniscript-absolute-timelock
+    family: miniscript
+    title: Miniscript vault with an absolute timelock (CLTV)
+    summary: >-
+      A witness script commits to an absolute locktime branch: spendable by the
+      primary path, then by a recovery path after a fixed height or date.
+    confidence: 0.7
+    evidence:
+      - 'OP_CLTV appears in the revealed witness script after a real opcode walk'
+      - 'Observed CLTV operands sit just below the chain tip, consistent with height-based recovery'
+    match:
+      all:
+        - { feature: timelock_inputs, op: gte, value: 1 }
+        - { feature: witness_cltv_values, op: exists }
+    wallets:
+      - { name: generic Miniscript vault, confidence: 0.5, kind: archetype }
+      - { name: Liana, confidence: 0.3, note: 'supports absolute-timelock recovery' }
+      - { name: Nunchuk, confidence: 0.2 }
+    labels: [policy:miniscript, policy:absolute-timelock]
+
+  - id: miniscript-timelocked-other
+    family: miniscript
+    title: Script with a timelock branch
+    summary: >-
+      A revealed witness script contains a CSV or CLTV branch that does not match
+      the common templates.
+    confidence: 0.6
+    evidence:
+      - 'Timelock opcodes survive an opcode walk, so they are real constraints'
+    match:
+      all:
+        - { feature: timelock_inputs, op: gte, value: 1 }
+    wallets:
+      - { name: custom timelocked script, confidence: 0.5, kind: archetype }
+      - { name: Liana, confidence: 0.2 }
+    labels: [policy:miniscript]
+
+  - id: multisig-vault-p2wsh
+    family: multisig
+    title: P2WSH spend (script unknown or non-multisig)
+    summary: >-
+      Spending a witness-script-hash output whose script we could not read as a
+      bare multisig template.
+    confidence: 0.45
+    evidence:
+      - 'P2WSH is the standard encoding for on-chain multisig and scripted vaults'
+    match:
+      all:
+        - { feature: input_types, op: contains, value: v0_p2wsh }
+        - { feature: p2wsh_multisig_inputs, op: eq, value: 0 }
+    wallets:
+      - { name: multisig vault (generic), confidence: 0.4, kind: archetype }
+      - { name: scripted vault / timelock, confidence: 0.35, kind: archetype }
+    labels: [policy:multisig]
+
+  # Muun's on-chain accounts are 2-of-2 multisig, so its inputs are P2WSH spent
+  # with a `OP_2 <pk> <pk> OP_2 CHECKMULTISIG` witness script. That template is
+  # rare on the network (a couple of percent), which is what makes it a real
+  # signature rather than a shape guess.
+  - id: multisig-2of2-p2wsh
+    family: multisig
+    title: 2-of-2 P2WSH multisig spend
+    summary: >-
+      Every parsed witness script is a 2-of-2 bare multisig: the collaborative
+      custody template used by Muun (user key + provider key) and by a few
+      custodial and vault products.
+    confidence: 0.6
+    evidence:
+      - 'Witness script matches OP_2 <pubkey> <pubkey> OP_2 OP_CHECKMULTISIG'
+      - 'Muun builds all on-chain accounts as 2-of-2 multisig with the provider'
+      - 'Single-signature wallets can never produce this script template'
+    match:
+      all:
+        - { feature: p2wsh_multisig_inputs, op: gte, value: 1 }
+        - { feature: multisig_m, op: eq, value: 2 }
+        - { feature: multisig_n, op: eq, value: 2 }
+    wallets:
+      - { name: Muun, confidence: 0.55, note: '2-of-2 multisig accounts' }
+      - { name: Blockstream Green, confidence: 0.5, note: 'multisig shield is 2-of-2 (user + service key)' }
+      - { name: generic 2-of-2 collaborative custody, confidence: 0.5, kind: archetype }
+    labels: [policy:multisig, policy:multisig-2of2]
+
+  - id: multisig-2of3-p2wsh
+    family: multisig
+    title: 2-of-3 P2WSH multisig spend
+    summary: >-
+      Every parsed witness script is a 2-of-3: the classic collaborative custody
+      and vault configuration.
+    confidence: 0.6
+    evidence:
+      - 'Witness script matches OP_2 <pk> <pk> <pk> OP_3 OP_CHECKMULTISIG'
+    match:
+      all:
+        - { feature: p2wsh_multisig_inputs, op: gte, value: 1 }
+        - { feature: multisig_m, op: eq, value: 2 }
+        - { feature: multisig_n, op: eq, value: 3 }
+    wallets:
+      - { name: Casa, confidence: 0.55, note: '2-of-3 multisig' }
+      - { name: Unchained Capital, confidence: 0.5 }
+      - { name: Bitkey, confidence: 0.35, note: 'Block 2-of-3' }
+      - { name: AnchorWatch, confidence: 0.3 }
+      - { name: Swan Vault, confidence: 0.3 }
+      - { name: Nunchuk, confidence: 0.4 }
+      - { name: Specter Desktop, confidence: 0.35 }
+    labels: [policy:multisig, policy:multisig-2of3]
+
+  - id: multisig-other-p2wsh
+    family: multisig
+    title: Other m-of-n P2WSH multisig spend
+    summary: >-
+      A parseable bare multisig witness script that is neither 2-of-2 nor 2-of-3.
+    confidence: 0.55
+    evidence:
+      - 'Bare multisig templates reveal their own threshold and participant count'
+    match:
+      all:
+        - { feature: p2wsh_multisig_inputs, op: gte, value: 1 }
+    wallets:
+      - { name: custom multisig setup, confidence: 0.5, kind: archetype }
+      - { name: Nunchuk, confidence: 0.3 }
+      - { name: Sparrow Wallet, confidence: 0.3 }
+      - { name: Specter Desktop, confidence: 0.3 }
+    labels: [policy:multisig]
+
+  # ----------------------------------------------------------------- protocol
+  - id: runes-data-carrier
+    family: protocol
+    title: Runes OP_RETURN data carrier
+    summary: >-
+      OP_RETURN OP_13 marks a Runes etching, mint, or transfer.
+    confidence: 0.9
+    evidence:
+      - 'Runes use OP_RETURN with OP_13 as the protocol marker'
+    match:
+      all:
+        - { feature: op_return_protocols, op: contains, value: runes }
+    # A Runes payload does not say *which* Runes-capable wallet built the
+    # transaction, but it does narrow the field: only software that understands
+    # Runes can emit it, which excludes essentially every plain payment wallet.
+    # So these are real candidates at moderate plausibility, not attributions.
+    wallets:
+      - { name: generic Runes-capable wallet, confidence: 0.45, kind: archetype, note: 'protocol constraint, vendor unknown' }
+      - { name: Xverse, confidence: 0.3, note: 'Runes support' }
+      - { name: Unisat, confidence: 0.3, note: 'Runes support' }
+      - { name: Magic Eden wallet, confidence: 0.25, note: 'Runes support' }
+      - { name: Leather, confidence: 0.2, note: 'Runes support' }
+      - { name: OKX Wallet, confidence: 0.2, note: 'Runes support' }
+      - { name: ord / bitcoin-cli mint tooling, confidence: 0.25, note: 'reference implementation' }
+    labels: [protocol:runes]
+
+  # The two dominant Runes mint shapes in observed traffic differ in exactly the
+  # way two independent transaction builders do: where change goes and how the
+  # outputs are ordered. Everything else about them is identical, so these two
+  # fields are what separate the implementations.
+  - id: runes-mint-mixed-order
+    family: protocol
+    title: Runes mint with non-deterministic output ordering
+    summary: >-
+      OP_RETURN carrier plus a wallet-shaped payment output, with change last and
+      outputs in ascending value order. Consistently the second-largest Runes
+      mint shape in observed traffic.
+    confidence: 0.7
+    evidence:
+      - 'Same Runes carrier as the dominant shape but the opposite ordering policy'
+      - 'Change lands last and outputs are ascending, i.e. value-sorted rather than script-sorted'
+    match:
+      all:
+        - { feature: op_return_protocols, op: contains, value: runes }
+        - { feature: output_order, op: eq, value: asc }
+        - { feature: change_position, op: eq, value: last }
+        - { feature: input_count, op: eq, value: 1 }
+        - { feature: output_count, op: eq, value: 2 }
+    wallets:
+      - { name: Runes-capable wallet (value-sorted builder), confidence: 0.6, kind: archetype }
+      - { name: Unisat, confidence: 0.3, note: 'Runes support' }
+      - { name: Xverse, confidence: 0.3, note: 'Runes support' }
+      - { name: OKX Wallet, confidence: 0.25, note: 'Runes support' }
+    labels: [protocol:runes, behavior:value-sorted-outputs]
+
+  - id: runes-mint-desc-order
+    family: protocol
+    title: Runes mint with descending outputs, change first
+    summary: >-
+      The dominant Runes mint shape: one P2WPKH input, an OP_RETURN carrier
+      first, change first, remaining output descending. A single implementation
+      dominates this shape by volume.
+    confidence: 0.7
+    evidence:
+      - 'Change-first with descending outputs is an unusual pairing for a payment wallet'
+      - 'Volume concentration in one exact signature implies one operator or tool'
+    match:
+      all:
+        - { feature: op_return_protocols, op: contains, value: runes }
+        - { feature: output_order, op: eq, value: desc }
+        - { feature: change_position, op: eq, value: first }
+        - { feature: input_count, op: eq, value: 1 }
+        - { feature: output_count, op: eq, value: 2 }
+    wallets:
+      - { name: "Runes mint tooling (change-first, descending)", confidence: 0.6, kind: archetype }
+      - { name: ord / bitcoin-cli mint tooling, confidence: 0.25 }
+    labels: [protocol:runes, behavior:change-first]
+
+  - id: omni-usdt
+    family: protocol
+    title: Omni Layer OP_RETURN
+    summary: >-
+      OP_RETURN carrying the "omni" marker, historically Tether USDT.
+    confidence: 0.9
+    evidence:
+      - 'Omni encodes its payload after the ASCII marker 6f6d6e69'
+    match:
+      all:
+        - { feature: op_return_protocols, op: contains, value: omni }
+    wallets:
+      - { name: Omni Core wallet, confidence: 0.5 }
+      - { name: custodial stablecoin issuer, confidence: 0.3, kind: archetype }
+    labels: [protocol:omni]
+
+  - id: inscription-envelope
+    family: protocol
+    title: Ordinals inscription envelope
+    summary: >-
+      A taproot witness carrying the `OP_FALSE OP_IF "ord"` envelope.
+    confidence: 0.85
+    evidence:
+      - 'Inscriptions commit data inside a taproot script-path witness'
+    match:
+      all:
+        - { feature: has_inscription_envelope, op: eq, value: true }
+    wallets:
+      - { name: Ordinals inscription tooling, confidence: 0.5, kind: archetype }
+      - { name: Xverse, confidence: 0.4, note: 'Ordinals support' }
+      - { name: Unisat, confidence: 0.4, note: 'Ordinals support' }
+      - { name: Magic Eden wallet, confidence: 0.35, note: 'Ordinals support' }
+      - { name: Leather, confidence: 0.3 }
+    labels: [protocol:inscription]
+
+  - id: lightning-anchor
+    family: protocol
+    title: Pay-to-anchor output (Lightning)
+    summary: >-
+      A P2A/anchor output on the transaction, used by anchor-channel Lightning
+      implementations for fee bumping.
+    confidence: 0.6
+    evidence:
+      - 'Anchor outputs (P2A, 51024e73) are a Lightning channel-management device'
+    match:
+      all:
+        - { feature: has_anchor_output, op: eq, value: true }
+    wallets:
+      - { name: Lightning node / wallet, confidence: 0.5, kind: archetype }
+      - { name: Phoenix, confidence: 0.35 }
+      - { name: Core Lightning, confidence: 0.35 }
+      - { name: LDK-based wallet, confidence: 0.35, kind: archetype }
+    labels: [protocol:lightning]
+
+  - id: unclassified-opreturn
+    family: protocol
+    title: Unrecognised OP_RETURN payload
+    summary: >-
+      A data carrier whose payload we cannot attribute to a known protocol.
+      Kept deliberately unattributed so it lands in the research pool.
+    confidence: 0.6
+    evidence:
+      - 'Unknown data-carrier payloads are prime candidates for a new profile'
+    match:
+      all:
+        - { feature: op_return_protocols, op: contains, value: unknown }
+    wallets:
+      - { name: generic data-carrier wallet, confidence: 0.45, kind: archetype }
+      - { name: Xverse, confidence: 0.3 }
+      - { name: Unisat, confidence: 0.3 }
+      - { name: ord / bitcoin-cli mint tooling, confidence: 0.3 }
+    labels: [protocol:unclassified-opreturn]
+
+# ---------------------------------------------------------------------------
+# Wallet categories
+#
+# An exclusive partition: every transaction lands in exactly ONE category, and
+# the first category (in this order) with a matching fingerprint wins. Order is
+# therefore priority, most specific first — a CoinJoin must never be filed under
+# "address reuse", and Runes traffic must not be filed under "locktime zero".
+#
+# Categories group fingerprints rather than restating conditions, so the matching
+# logic lives in one place. Candidate wallets are the union of the member
+# fingerprints' wallets (highest plausibility wins), plus anything declared here.
+#
+# A transaction may match many fingerprints but only one category; that is the
+# difference between the Wallets tab and the Fingerprints tab.
+# ---------------------------------------------------------------------------
+
+categories:
+  - id: coinjoin
+    title: CoinJoin
+    description: Collaborative transactions with equal-value output groups.
+    anyOf: [whirlpool-coinjoin, coinjoin-large-equal, coinjoin-generic]
+
+  - id: inscription
+    title: Ordinals Inscription
+    description: Taproot witnesses carrying an inscription envelope.
+    anyOf: [inscription-envelope]
+
+  - id: runes
+    title: Runes Minting
+    description: OP_RETURN OP_13 data carriers used by the Runes protocol.
+    anyOf: [runes-mint-desc-order, runes-mint-mixed-order, runes-data-carrier]
+
+  - id: data-carrier
+    title: Other Data Carrier
+    description: Omni/USDT payloads and unrecognised OP_RETURN carriers.
+    anyOf: [omni-usdt, unclassified-opreturn]
+
+  - id: lightning
+    title: Lightning Channel
+    description: Pay-to-anchor outputs used for channel fee bumping.
+    anyOf: [lightning-anchor]
+
+  - id: timelocked-miniscript
+    title: Timelocked Miniscript
+    description: >-
+      Vaults whose witness script carries a CSV or CLTV recovery branch. The
+      strongest structural signal available: payment wallets never produce it.
+    anyOf:
+      - miniscript-csv-1008
+      - miniscript-relative-timelock
+      - miniscript-absolute-timelock
+      - miniscript-timelocked-other
+
+  - id: multisig-2of2
+    title: 2-of-2 Multisig
+    description: Collaborative custody with a 2-of-2 P2WSH script.
+    anyOf: [multisig-2of2-p2wsh]
+
+  - id: multisig-2of3
+    title: 2-of-3 Multisig
+    description: Classic collaborative-custody vault configuration.
+    anyOf: [multisig-2of3-p2wsh]
+
+  - id: multisig-other
+    title: Other Multisig
+    description: Multisig or scripted vaults outside the common templates.
+    anyOf: [multisig-other-p2wsh, multisig-vault-p2wsh]
+
+  - id: batch-payout
+    title: Batched Payout
+    description: Many distinct recipients in one transaction, typical of custodial withdrawal engines.
+    anyOf: [exchange-batch-payout, batched-withdrawal-small]
+
+  - id: consolidation
+    title: UTXO Consolidation
+    description: Many inputs collapsing into one or two outputs.
+    anyOf: [consolidation-sweep]
+
+  - id: core-style
+    title: Bitcoin Core Style
+    description: >-
+      Tip-height nLockTime with a consistent sequence policy: the default draft of
+      Bitcoin Core and the coordinators that drive it.
+    anyOf: [core-rbf-tip-locktime, core-final-tip-locktime]
+
+  - id: legacy
+    title: Legacy
+    description: Pre-segwit scripts, or old UTXOs being spent to modern addresses.
+    anyOf: [legacy-v1-p2pkh, legacy-segwit-migration]
+
+  - id: nested-segwit
+    title: Nested Segwit
+    description: Wrapped segwit (P2SH-P2WPKH) spends.
+    anyOf: [nested-segwit-p2sh]
+
+  - id: taproot
+    title: Taproot
+    description: P2TR spends without a Core-style locktime policy.
+    anyOf: [taproot-scriptpath, taproot-keypath-only]
+
+  - id: locktime-zero
+    title: Locktime Zero
+    description: >-
+      Segwit spends with nLockTime 0 and no stronger signature. The modal shape of
+      the modern mempool, so it carries a generic descriptor rather than vendors.
+    anyOf: [v2-locktime0-rbf, v2-locktime0-final]
+
+  - id: atypical-policy
+    title: Atypical Policy
+    description: Ordering, sequence or value choices that ordinary payments do not make.
+    anyOf:
+      - relative-locktime
+      - timestamp-locktime
+      - mixed-sequence-coin-control
+      - round-value-payments
+      - bip69-ordering
+
+  # Kept separate from the rest: dust is an attack shape, not a wallet policy, and
+  # merging it into "atypical policy" produced a nonsense candidate list.
+  - id: dust
+    title: Dust / Poisoning
+    description: Below-dust outputs attached to a small transaction.
+    anyOf: [dust-attached]
+
+  - id: address-reuse
+    title: Address Reuse
+    description: An input address reappears among the outputs. Endemic in bot and spam traffic.
+    anyOf: [address-reuse]

@@ -1,0 +1,11 @@
+{
+  "apiBase": "https://mempool.space",
+  "dbPath": "data/mempool.sqlite",
+  "rps": 8,
+  "concurrency": 6,
+  "storeRaw": true,
+  "dashboardPort": 8787,
+  "reconcileSeconds": 300,
+  "idleTimeoutSeconds": 120,
+  "gapFillLimit": 1000
+}

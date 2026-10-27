@@ -1,0 +1,28 @@
+{
+  "name": "wallet-fingerprint",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Stream the Bitcoin mempool from mempool.space and tag transactions by wallet fingerprint",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "bin": {
+    "wallet-fingerprint": "./src/cli.ts"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/cli.ts",
+    "live": "node --disable-warning=ExperimentalWarning src/cli.ts live",
+    "backfill": "node --disable-warning=ExperimentalWarning src/cli.ts backfill",
+    "dashboard": "node --disable-warning=ExperimentalWarning src/cli.ts dashboard",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "typescript": "^5.9.3"
+  }
+}

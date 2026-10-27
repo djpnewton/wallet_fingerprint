@@ -1,0 +1,750 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mempool wallet fingerprints</title>
+    <style>
+      :root {
+        --bg: #0a0e13;
+        --panel: #111823;
+        --panel-2: #0d141d;
+        --border: #1e2a38;
+        --text: #dbe4ee;
+        --muted: #7c8b9d;
+        --accent: #f7931a;
+        --green: #4ade80;
+        --amber: #fbbf24;
+        --red: #f87171;
+        --blue: #60a5fa;
+        --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      a { color: var(--blue); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 14px;
+        padding: 18px 24px;
+        border-bottom: 1px solid var(--border);
+        background: linear-gradient(180deg, #121a25, #0a0e13);
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+      h1 { font-size: 17px; margin: 0; letter-spacing: 0.2px; }
+      h1 span { color: var(--accent); }
+      .sub { color: var(--muted); font-size: 12px; }
+      .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--red); margin-right: 6px; }
+      .dot.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
+      .toggle {
+        display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+        font-size: 12px; color: var(--text); background: #16202c;
+        border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px 4px 8px;
+      }
+      .toggle:hover { border-color: #2f4358; }
+      .toggle input { accent-color: var(--accent); margin: 0; cursor: pointer; }
+      .toggle.off span { color: var(--muted); }
+      .spam-chip {
+        border-color: #6b4423; color: var(--amber); background: #241a10;
+        font-size: 10.5px; padding: 1px 6px; border-radius: 4px; white-space: nowrap;
+      }
+      main { padding: 20px 24px 60px; max-width: 1500px; margin: 0 auto; transition: opacity 0.12s; }
+      body.loading main { opacity: 0.4; }
+      .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(126px, 1fr)); gap: 12px; margin-bottom: 18px; }
+      .kpi { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+      .kpi .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; }
+      .kpi .value { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+      .kpi .hint { color: var(--muted); font-size: 11px; }
+      .kpi .value.good { color: var(--green); }
+      .stale {
+        display: none;
+        margin-bottom: 14px;
+        padding: 10px 14px;
+        border-radius: 10px;
+        border: 1px solid #6b4423;
+        background: #241a10;
+        color: var(--amber);
+        font-size: 12.5px;
+      }
+      .stale.show { display: block; }
+      .stale code { font-family: var(--mono); background: #12181f; padding: 1px 5px; border-radius: 4px; }
+      .grid { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 16px; }
+      @media (max-width: 1000px) { .grid { grid-template-columns: 1fr; } }
+      .stack { display: grid; grid-template-columns: 1fr; gap: 16px; }
+      section.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 16px; overflow: hidden; }
+      section.panel > h2 {
+        font-size: 12px; text-transform: uppercase; letter-spacing: 0.7px; color: var(--muted);
+        margin: 0; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--panel-2);
+        display: flex; justify-content: space-between; align-items: center; gap: 8px;
+      }
+      .panel-body { padding: 12px 16px; }
+      .bars { display: flex; flex-direction: column; gap: 7px; }
+      .bar-row { display: grid; grid-template-columns: minmax(120px, 210px) 1fr 96px; gap: 10px; align-items: center; font-size: 12.5px; }
+      .bar-row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .bar-track { background: #0a121b; border-radius: 4px; height: 9px; overflow: hidden; }
+      .bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), #ffb35c); border-radius: 4px; }
+      .bar-row .num { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+      .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+      .chip {
+        background: #16202c; border: 1px solid var(--border); border-radius: 999px;
+        padding: 2px 9px; font-size: 11.5px; color: var(--text); white-space: nowrap;
+      }
+      .chip .n { color: var(--muted); margin-left: 5px; font-variant-numeric: tabular-nums; }
+      .chip.wallet { border-color: #2c3f56; background: #131e2b; }
+      .chip.unknown { border-color: #6b4423; color: var(--amber); background: #241a10; }
+      table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+      th { text-align: left; color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+      td { padding: 7px 8px; border-bottom: 1px solid #16202b; vertical-align: top; }
+      tr:last-child td { border-bottom: none; }
+      tr:hover td { background: #131c27; }
+      .mono { font-family: var(--mono); font-size: 12px; }
+      td .mono { white-space: nowrap; }
+      .sig { display: block; max-width: 640px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .muted { color: var(--muted); }
+      .num { font-variant-numeric: tabular-nums; text-align: right; }
+      .status-mempool { color: var(--amber); }
+      .status-confirmed { color: var(--green); }
+      .status-dropped { color: var(--muted); }
+      .wallet-cell { display: flex; flex-wrap: wrap; gap: 4px; }
+      .wallet-pill {
+        background: #16202c; border: 1px solid #26384c; border-radius: 4px; padding: 1px 6px;
+        font-size: 11px; white-space: nowrap;
+      }
+      .wallet-pill b { color: var(--accent); font-weight: 500; }
+      .wallet-pill.archetype {
+        border-style: dashed; border-color: #2f3a48; color: var(--muted); background: transparent;
+      }
+      input[type="search"] {
+        background: #0a121b; border: 1px solid var(--border); color: var(--text);
+        border-radius: 6px; padding: 6px 10px; font-family: var(--mono); font-size: 12px; width: 340px;
+      }
+      button {
+        background: #1b2634; color: var(--text); border: 1px solid var(--border);
+        border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 12px;
+      }
+      button:hover { background: #24313f; }
+      #detail { display: none; }
+      #detail.open { display: block; }
+      .detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+      .field { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+      .field .k { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.5px; }
+      .field .v { font-family: var(--mono); font-size: 12.5px; word-break: break-all; }
+      .conf-track { height: 5px; background: #0a121b; border-radius: 3px; overflow: hidden; margin-top: 4px; }
+      .conf-fill { height: 100%; background: var(--accent); }
+      .fail { color: var(--red); font-size: 11px; font-family: var(--mono); }
+      .empty { color: var(--muted); font-size: 12.5px; padding: 8px 0; }
+      .tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+      .tab {
+        background: var(--panel); border: 1px solid var(--border); color: var(--muted);
+        border-radius: 9px; padding: 8px 18px; font-size: 13px; cursor: pointer;
+        display: inline-flex; align-items: center; gap: 7px;
+      }
+      .tab:hover { color: var(--text); border-color: #2f4358; }
+      .tab.active { color: var(--text); border-color: var(--accent); background: #1a1409; }
+      .tab .tabn {
+        font-size: 10.5px; color: var(--muted); background: #0a121b;
+        border-radius: 999px; padding: 1px 7px; font-variant-numeric: tabular-nums;
+      }
+      .tab.active .tabn { color: var(--accent); }
+      .cat-row {
+        display: grid; grid-template-columns: 1fr auto; gap: 3px 16px;
+        padding: 11px 0; border-bottom: 1px solid #16202b;
+      }
+      .cat-row:last-of-type { border-bottom: none; }
+      .cat-title { font-size: 13px; font-weight: 550; }
+      .cat-stat { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+      .cat-stat .n { font-size: 12.5px; }
+      .cat-stat .p { color: var(--muted); font-size: 11px; }
+      .cat-desc { grid-column: 1 / -1; color: var(--muted); font-size: 11.5px; }
+      .cat-wallets { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+      .cat-fps { grid-column: 1 / -1; color: var(--muted); font-size: 10.5px; margin-top: 5px; }
+      .cat-bar { grid-column: 1 / -1; height: 4px; background: #0a121b; border-radius: 2px; overflow: hidden; margin-top: 7px; }
+      .cat-bar > div { height: 100%; background: linear-gradient(90deg, var(--accent), #ffb35c); }
+      .fp-row {
+        display: grid; grid-template-columns: 1fr auto; gap: 4px 16px;
+        padding: 9px 0; border-bottom: 1px solid #16202b;
+      }
+      .fp-row:last-of-type { border-bottom: none; }
+      .fp-title { font-size: 12.5px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+      .fp-stat { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+      .fp-stat .n { font-size: 12.5px; }
+      .fp-stat .p { color: var(--muted); font-size: 11px; }
+      .fp-wallets { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+      .fp-raw { grid-column: 1 / -1; height: 4px; background: #0a121b; border-radius: 2px; overflow: hidden; margin-top: 4px; }
+      .fp-raw > div { height: 100%; background: linear-gradient(90deg, var(--accent), #ffb35c); }
+      .protocol-block {
+        margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--border);
+      }
+      .protocol-title {
+        font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.6px;
+        color: var(--muted); margin-bottom: 7px;
+      }
+      .protocol-note { color: var(--muted); font-size: 11px; margin-top: 6px; }
+      .scroll { max-height: 430px; overflow: auto; }
+      footer { color: var(--muted); font-size: 11.5px; text-align: center; padding: 10px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Mempool <span>wallet fingerprints</span></h1>
+      <div class="sub"><span id="conn"></span><span id="connText">connecting…</span></div>
+      <div class="sub" id="runtime"></div>
+      <label class="toggle" title="Hide Runes, Ordinals and other data-carrier traffic from every statistic">
+        <input type="checkbox" id="hideSpam" />
+        <span>hide spam<span id="spamCount" class="sub"></span></span>
+      </label>
+      <div class="sub" style="margin-left: auto"><span id="updated">–</span></div>
+    </header>
+
+    <main>
+      <div class="stale" id="stale"></div>
+      <div class="kpis" id="kpis"></div>
+
+      <nav class="tabs" id="tabs">
+        <button class="tab active" data-tab="wallets">Wallets <span class="tabn" id="tabWalletCount"></span></button>
+        <button class="tab" data-tab="fingerprints">Fingerprints <span class="tabn" id="tabFpCount"></span></button>
+      </nav>
+
+      <section class="panel" id="detail">
+        <h2>Transaction detail <button id="closeDetail" style="font-size: 11px">close</button></h2>
+        <div class="panel-body" id="detailBody"></div>
+      </section>
+
+      <section class="panel tabpanel" id="panel-wallets">
+        <h2>
+          Wallet categories
+          <span class="sub" style="text-transform:none;letter-spacing:0">exclusive — every transaction is in exactly one</span>
+        </h2>
+        <div class="panel-body"><div id="categories"></div></div>
+      </section>
+
+      <section class="panel tabpanel" id="panel-fingerprints" hidden>
+        <h2>
+          Fingerprints
+          <span class="sub" style="text-transform:none;letter-spacing:0">a transaction can match several · % = likely given the fingerprint</span>
+        </h2>
+        <div class="panel-body"><div id="fingerprints"></div></div>
+      </section>
+
+      <section class="panel">
+        <h2>Behaviour &amp; protocol labels</h2>
+        <div class="panel-body"><div class="chips" id="labels"></div></div>
+      </section>
+
+      <section class="panel">
+        <h2>
+          Recent transactions
+          <input type="search" id="search" placeholder="inspect txid…" spellcheck="false" />
+        </h2>
+        <div class="panel-body scroll" style="padding: 0">
+          <table>
+            <thead>
+              <tr>
+                <th>seen</th><th>txid</th><th>status</th><th class="num">sat/vB</th>
+                <th class="num">in/out</th><th>candidate wallets</th><th>labels</th>
+              </tr>
+            </thead>
+            <tbody id="recent"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <div class="stack">
+        <section class="panel">
+          <h2>
+            <span>Research pool clusters<span class="sub" style="text-transform:none;letter-spacing:0;margin-left:8px">unknown + weak attributions</span></span>
+            <a id="exportLink" href="/api/research/unknown.jsonl?weak=1" class="sub" style="text-transform:none;letter-spacing:0">export jsonl ↓</a>
+          </h2>
+          <div class="panel-body scroll"><table>
+            <thead><tr><th class="num">txs</th><th>signature</th><th class="num">avg sat/vB</th><th>examples</th></tr></thead>
+            <tbody id="clusters"></tbody>
+          </table></div>
+        </section>
+        <section class="panel">
+          <h2>Near misses (rules almost matching unknowns)</h2>
+          <div class="panel-body scroll" id="nearMisses"></div>
+        </section>
+      </div>
+    </main>
+    <footer>Heuristic attribution — candidate wallets are ranked plausibility, not proof.</footer>
+
+    <script>
+    const STALE_BANNER_MIN = 25;
+      const $ = (id) => document.getElementById(id);
+
+      function el(tag, props = {}, children = []) {
+        const node = document.createElement(tag);
+        for (const [k, v] of Object.entries(props)) {
+          if (k === 'class') node.className = v;
+          else if (k === 'text') node.textContent = v;
+          else if (k === 'href') node.setAttribute('href', v);
+          else if (k === 'title') node.setAttribute('title', v);
+          else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
+          else node.setAttribute(k, v);
+        }
+        for (const child of [].concat(children)) {
+          if (child == null) continue;
+          node.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
+        }
+        return node;
+      }
+
+      const fmt = (n) => (n ?? 0).toLocaleString('en-US');
+      const pct = (n) => `${Math.round((n ?? 0) * 100)}%`;
+      // Rare signatures must not read as "0%".
+      const pctFine = (n) => {
+        const v = n ?? 0;
+        if (v > 0 && v < 0.01) return `${(v * 100).toFixed(2)}%`;
+        if (v < 0.1) return `${(v * 100).toFixed(1)}%`;
+        return `${Math.round(v * 100)}%`;
+      };
+      const ago = (ts) => {
+        if (!ts) return '–';
+        const s = Math.max(0, Math.floor(Date.now() / 1000) - ts);
+        if (s < 60) return `${s}s`;
+        if (s < 3600) return `${Math.floor(s / 60)}m`;
+        if (s < 86400) return `${Math.floor(s / 3600)}h`;
+        return `${Math.floor(s / 86400)}d`;
+      };
+
+      let lastStats = null;
+
+      function renderKpis(d) {
+        const s = d.summary;
+        const share = (n) => (s.total ? `${pct(n / s.total)} of tracked` : '–');
+        // Only an attribution above the weak threshold means anything: a 6%
+        // "generic wallet" tag used to be counted here, which made the headline
+        // percentage look like coverage when it was really just bucket size.
+        const cards = [
+          ['tracked txs', fmt(s.total), `since ${s.firstSeen ? ago(s.firstSeen) + ' ago' : '–'}`],
+          ['in mempool', fmt(s.mempool), `${fmt(s.confirmed)} confirmed`],
+          [
+            'confident attribution',
+            fmt(s.attributed ?? 0),
+            share(s.attributed ?? 0).replace('of tracked', '≥35% plausibility'),
+            'good',
+          ],
+          ['weak attributions', fmt(s.weak ?? 0), share(s.weak ?? 0).replace('of tracked', '<35% — no signal')],
+          ['unknown pool', fmt(s.unknown), share(s.unknown).replace('of tracked', 'for research')],
+          ['avg fee rate', `${(s.avgFeeRate ?? 0).toFixed(2)}`, 'sat/vB'],
+        ];
+        $('kpis').replaceChildren(
+          ...cards.map(([label, value, hint, tone]) =>
+            el('div', { class: 'kpi' }, [
+              el('div', { class: 'label', text: label }),
+              el('div', { class: `value${tone === 'good' ? ' good' : ''}`, text: value }),
+              el('div', { class: 'hint', text: hint }),
+            ]),
+          ),
+        );
+      }
+
+      function renderCategories(rows, spam) {
+        const visible = rows.filter((r) => r.txs > 0);
+        const max = Math.max(1, ...visible.map((r) => r.txs));
+
+        const nodes = visible.map((r) => {
+          const wallets = r.wallets.map((w) =>
+            el('span', {
+              class: 'wallet-pill',
+              title: `${w.name} is a candidate for this category${w.note ? ' — ' + w.note : ''}`,
+            }, [w.name]),
+          );
+          const fps = r.fingerprints.filter((f) => f.txs > 0);
+          return el('div', { class: 'cat-row' }, [
+            el('div', {}, [
+              el('div', { class: 'cat-title', text: r.title }),
+              r.description ? el('div', { class: 'cat-desc', text: r.description }) : null,
+            ]),
+            el('div', { class: 'cat-stat' }, [
+              el('div', { class: 'n', text: `${fmt(r.txs)} txs` }),
+              el('div', { class: 'p', text: `${pctFine(r.prevalence)} of corpus` }),
+            ]),
+            el('div', { class: 'cat-wallets' },
+              wallets.length > 0
+                ? wallets
+                : [el('span', { class: 'muted', style: 'font-size:11.5px', text: 'no specific wallet tags' })]),
+            fps.length > 0
+              ? el('div', { class: 'cat-fps', text: `via ${fps.map((f) => `${f.id} (${fmt(f.txs)})`).join(' · ')}` })
+              : null,
+            el('div', { class: 'cat-bar' }, [el('div', { style: `width:${(r.txs / max) * 100}%` })]),
+          ].filter(Boolean));
+        });
+
+        const protocol = renderProtocolTraffic(spam, spamHidden);
+        if (protocol) nodes.push(protocol);
+        $('categories').replaceChildren(
+          ...(nodes.length > 0 ? nodes : [el('div', { class: 'empty', text: 'no data yet' })]),
+        );
+        $('tabWalletCount').textContent = String(visible.length);
+      }
+
+      function renderProtocolTraffic(spam, hidden) {
+        if (!spam || spam.length === 0) return null;
+        const total = spam.reduce((n, k) => n + k.txs, 0);
+        return el('div', { class: 'protocol-block' }, [
+          el('div', {
+            class: 'protocol-title',
+            text: `Protocol traffic (${fmt(total)} txs${hidden ? ', hidden from stats' : ''})`,
+          }),
+          el('div', { class: 'chips' }, spam.map((k) =>
+            el('span', { class: 'chip', title: `${k.kind}: ${fmt(k.txs)} transactions` }, [
+              k.kind,
+              el('span', { class: 'n', text: fmt(k.txs) }),
+            ]),
+          )),
+          el('div', {
+            class: 'protocol-note',
+            text: 'A Runes/Ordinals payload is still signed by wallet software, so these transactions ' +
+              'match fingerprints above. The payload narrows the field to wallets that support the ' +
+              'protocol; change position and output ordering separate the implementations.',
+          }),
+        ]);
+      }
+
+      // The fingerprint is the unit of evidence. Every wallet a matching profile
+      // lists is equally consistent with the transaction, so ranking wallets
+      // separately would invent distinctions the data does not contain.
+      function renderFingerprints(rows) {
+        const visible = rows.filter((r) => r.txs > 0);
+        const max = Math.max(1, ...visible.map((r) => r.txs));
+
+        const nodes = visible.map((r) => {
+          const wallets = r.wallets.map((w) =>
+            el('span', {
+              class: `wallet-pill${w.kind === 'archetype' ? ' archetype' : ''}`,
+              title: w.kind === 'archetype'
+                ? `builder archetype, not a specific product${w.note ? ' — ' + w.note : ''}`
+                : `${pct(w.confidence)} likely given this fingerprint${w.note ? ' — ' + w.note : ''}`,
+            }, w.kind === 'archetype' ? [w.name] : [w.name, el('b', { text: ` ${pct(w.confidence)}` })]),
+          );
+          return el('div', { class: 'fp-row' }, [
+            el('div', { class: 'fp-title' }, [
+              el('span', { text: r.title }),
+            ]),
+            el('div', { class: 'fp-stat' }, [
+              el('div', { class: 'n', text: `${fmt(r.txs)} txs` }),
+              el('div', { class: 'p', text: `${pctFine(r.prevalence)} of corpus` }),
+            ]),
+            el('div', { class: 'fp-wallets' },
+              wallets.length > 0
+                ? wallets
+                : [el('span', { class: 'muted', style: 'font-size:11.5px', text: 'no wallet attribution — behaviour labels only' })]),
+            el('div', { class: 'fp-raw' }, [
+              el('div', { style: `width:${(r.txs / max) * 100}%` }),
+            ]),
+          ]);
+        });
+
+        $('fingerprints').replaceChildren(
+          ...(nodes.length > 0 ? nodes : [el('div', { class: 'empty', text: 'no data yet' })]),
+        );
+      }
+
+      function renderLabels(labels) {
+        $('labels').replaceChildren(
+          ...labels.map((l) =>
+            el('span', { class: 'chip' }, [l.label, el('span', { class: 'n', text: fmt(l.txs) })]),
+          ),
+        );
+        if (labels.length === 0) $('labels').replaceChildren(el('div', { class: 'empty', text: 'no data yet' }));
+      }
+
+      function walletPills(wallets) {
+        if (!wallets.length) return [el('span', { class: 'chip unknown', text: 'unknown → research' })];
+        const pills = wallets.slice(0, 3).map((w) =>
+          el('span', { class: 'wallet-pill', title: `profiles: ${w.profiles.join(', ')}` }, [
+            w.name,
+            el('b', { text: ` ${pct(w.confidence)}` }),
+          ]),
+        );
+        if (wallets.length > 3) pills.push(el('span', { class: 'wallet-pill muted', text: `+${wallets.length - 3}` }));
+        return pills;
+      }
+
+      function renderRecent(rows) {
+        $('recent').replaceChildren(
+          ...rows.map((r) =>
+            el('tr', {}, [
+              el('td', { class: 'muted mono', text: ago(r.first_seen_at) }),
+              el('td', { style: 'white-space:nowrap' }, [
+                el('a', {
+                  class: 'mono',
+                  href: `https://mempool.space/tx/${r.txid}`,
+                  text: `${r.txid.slice(0, 10)}…${r.txid.slice(-6)}`,
+                  target: '_blank',
+                  title: 'open on mempool.space',
+                }),
+                el('div', {
+                  class: 'muted mono',
+                  style: 'font-size:10px;cursor:pointer',
+                  text: 'inspect',
+                  onclick: () => inspect(r.txid),
+                }),
+              ]),
+              el('td', {}, [
+                el('div', { class: `status-${r.status}`, text: r.status }),
+                r.spam_kind
+                  ? el('span', { class: 'spam-chip', title: 'protocol / data-carrier traffic', text: r.spam_kind })
+                  : null,
+              ]),
+              el('td', { class: 'num', text: r.fee_rate.toFixed(1) }),
+              el('td', { class: 'num muted', text: `${r.input_count}/${r.output_count}` }),
+              el('td', {}, [el('div', { class: 'wallet-cell' }, walletPills(r.wallets))]),
+              el('td', {}, [
+                el('div', { class: 'chips' }, r.labels.slice(0, 3).map((l) => el('span', { class: 'chip', text: l }))),
+              ]),
+            ]),
+          ),
+        );
+        if (rows.length === 0) {
+          $('recent').replaceChildren(el('tr', {}, [el('td', { class: 'empty', colspan: '7', text: 'no transactions yet — run backfill or live' })]));
+        }
+      }
+
+      function renderClusters(clusters) {
+        $('clusters').replaceChildren(
+          ...clusters.map((c) =>
+            el('tr', {}, [
+              el('td', { class: 'num', text: fmt(c.count) }),
+              el('td', {}, [
+                el('span', {
+                  class: 'mono sig',
+                  style: 'font-size:11px',
+                  text: c.signature,
+                  title: c.signature,
+                }),
+              ]),
+              el('td', { class: 'num', text: c.avg_fee_rate.toFixed(2) }),
+              el('td', {}, c.examples.slice(0, 2).map((t) =>
+                el('div', { class: 'mono', style: 'font-size:11px;cursor:pointer', text: t.slice(0, 12) + '…', onclick: () => inspect(t) }),
+              )),
+            ]),
+          ),
+        );
+        if (clusters.length === 0) {
+          $('clusters').replaceChildren(el('tr', {}, [el('td', { class: 'empty', colspan: '4', text: 'no unknown clusters yet' })]));
+        }
+      }
+
+      async function loadNearMisses() {
+        try {
+          const res = await fetch(`/api/research/near-misses${spamHidden ? '?exclude_spam=1' : ''}`);
+          const { nearMisses } = await res.json();
+          if (!nearMisses.length) {
+            $('nearMisses').replaceChildren(el('div', { class: 'empty', text: 'no near misses yet' }));
+            return;
+          }
+          $('nearMisses').style.columnCount = '2';
+          $('nearMisses').style.columnGap = '28px';
+          $('nearMisses').replaceChildren(
+            ...nearMisses.map((n) =>
+              el('div', { style: 'margin-bottom:12px;break-inside:avoid' }, [
+                el('div', {}, [
+                  el('strong', { text: n.title }),
+                  el('span', { class: 'muted', text: ` · ${fmt(n.txs)} txs · avg ${pct(n.avgRatio)} of conditions` }),
+                ]),
+                el('div', {}, n.failed.map((f) => el('div', { class: 'fail', text: `✗ ${f.condition} (${fmt(f.count)})` }))),
+              ]),
+            ),
+          );
+        } catch (err) {
+          $('nearMisses').replaceChildren(el('div', { class: 'empty', text: 'failed to load near misses' }));
+        }
+      }
+
+      async function inspect(txid) {
+        const panel = $('detail');
+        panel.classList.add('open');
+        $('detailBody').replaceChildren(el('div', { class: 'empty', text: 'loading…' }));
+        try {
+          const res = await fetch(`/api/tx/${txid}`);
+          if (!res.ok) throw new Error('not found');
+          const tx = await res.json();
+          const f = tx.features;
+          const fields = [
+            ['status', tx.status + (tx.block_height ? ` @ ${tx.block_height}` : '')],
+            ['txid', tx.txid],
+            ['fee rate', `${tx.fee_rate.toFixed(2)} sat/vB`],
+            ['fee', `${fmt(tx.fee)} sat · ${fmt(tx.vsize)} vB`],
+            ['version / locktime', `v${f.version} · ${f.locktime} (${f.locktime_class})`],
+            ['sequence profile', `${f.sequence_profile} (${f.sequence_values.map((s) => '0x' + (s >>> 0).toString(16)).join(', ')})`],
+            ['scripts in → out', `${f.input_type_profile || '–'} → ${f.output_type_profile || '–'}`],
+            ['shape', `${f.input_count} in / ${f.output_count} out · ${f.io_ratio_bucket}`],
+            ['change', f.change_index === null ? 'not inferable' : `#${f.change_index} (${f.change_position}, ${f.change_script_type})`],
+            ['ordering', `${f.output_order}${f.bip69_outputs ? ' · bip69' : ''}`],
+            ['protocols', f.op_return_protocols.join(', ') || '–'],
+            ['equal outputs', String(f.equal_output_max)],
+            ['address reuse', String(f.address_reuse)],
+            ['signature', f.signature],
+          ];
+          $('detailBody').replaceChildren(
+            ...[
+            el('div', { class: 'detail-grid' }, fields.map(([k, v]) =>
+              el('div', { class: 'field' }, [el('div', { class: 'k', text: k }), el('div', { class: 'v', text: v })]),
+            )),
+            el('h3', { style: 'font-size:12px;color:var(--muted);text-transform:uppercase', text: 'matched profiles' }),
+            el('div', { style: 'display:grid;gap:4px' }, tx.profiles.map((pr) =>
+              el('div', { style: 'display:flex;justify-content:space-between;gap:12px;font-size:12px' }, [
+                el('span', { class: 'mono', text: pr.profileId }),
+                el('span', { class: 'muted', style: 'white-space:nowrap', text:
+                  `${pr.baseRate === null ? 'prevalence ?' : 'prevalence ' + pctFine(pr.baseRate)} · spec ${pr.specificity.toFixed(2)}` }),
+              ]),
+            )),
+            el('h3', { style: 'font-size:12px;color:var(--muted);text-transform:uppercase', text: 'candidate wallets' }),
+            el('div', { style: 'display:grid;gap:6px' }, tx.wallets.map((w) =>
+              el('div', {}, [
+                el('div', { style: 'display:flex;justify-content:space-between;gap:12px;font-size:12.5px' }, [
+                  el('span', { text: w.name }),
+                  el('span', { class: 'muted', style: 'white-space:nowrap', text: `${pct(w.confidence)} · spec ${(w.specificity ?? 1).toFixed(2)}` }),
+                ]),
+                el('div', { class: 'conf-track' }, [el('div', { class: 'conf-fill', style: `width:${w.confidence * 100}%` })]),
+              ]),
+            )),
+            tx.wallets.length === 0 ? el('div', { class: 'empty', text: 'no wallet matched — saved for research' }) : null,
+            el('h3', { style: 'font-size:12px;color:var(--muted);text-transform:uppercase', text: 'near misses' }),
+            el('div', {}, tx.nearMisses.map((n) =>
+              el('div', { style: 'margin-bottom:6px' }, [
+                el('div', { text: `${n.title} — ${pct(n.ratio)}` }),
+                el('div', { class: 'fail', text: n.failed.join('; ') }),
+              ]),
+            )),
+            el('h3', { style: 'font-size:12px;color:var(--muted);text-transform:uppercase', text: 'inputs' }),
+            el('div', { class: 'mono', style: 'font-size:11.5px' }, tx.inputs.map((i) =>
+              el('div', { text: `#${i.idx} ${i.address ?? '(no address)'} ${fmt(i.value ?? 0)} sat ${i.script_type ?? ''}` }),
+            )),
+            el('h3', { style: 'font-size:12px;color:var(--muted);text-transform:uppercase', text: 'outputs' }),
+            el('div', { class: 'mono', style: 'font-size:11.5px' }, tx.outputs.map((o) =>
+              el('div', { text: `#${o.idx} ${o.address ?? '(no address)'} ${fmt(o.value)} sat ${o.script_type}${o.is_dust ? ' · DUST' : ''}` }),
+            )),
+            ].filter(Boolean),
+          );
+          panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } catch (err) {
+          $('detailBody').replaceChildren(el('div', { class: 'empty', text: `could not load ${txid}` }));
+        }
+      }
+
+      $('closeDetail').addEventListener('click', () => $('detail').classList.remove('open'));
+      $('search').addEventListener('keydown', (ev) => {
+        if (ev.key !== 'Enter') return;
+        const value = ev.target.value.trim();
+        if (/^[0-9a-fA-F]{64}$/.test(value)) inspect(value.toLowerCase());
+        else $('detailBody').replaceChildren(el('div', { class: 'empty', text: 'enter a 64-char txid' }));
+        $('detail').classList.add('open');
+      });
+
+      function applyStats(payload) {
+        const d = payload.data;
+        lastStats = d;
+        renderKpis(d);
+        renderCategories(d.categories || [], d.spam);
+        renderFingerprints(d.fingerprints);
+        $('tabFpCount').textContent = String((d.fingerprints || []).filter((f) => f.txs > 0).length);
+        renderLabels(d.labels);
+        renderRecent(d.recent);
+        renderClusters(d.clusters);
+        const summary = d.summary;
+        const spamNote = summary.spam
+          ? spamHidden
+            ? ` · ${fmt(summary.spam)} spam hidden`
+            : ` · ${fmt(summary.spam)} spam included`
+          : '';
+        $('spamCount').textContent = spamNote;
+        $('exportLink').setAttribute(
+          'href',
+          `/api/research/unknown.jsonl?weak=1${spamHidden ? '&exclude_spam=1' : ''}`,
+        );
+        const staleEl = $('stale');
+        // A handful of rows lagging behind is normal while a live ingest process
+        // writes; only shout when there is enough drift to move the statistics.
+        if (summary.stale >= STALE_BANNER_MIN) {
+          staleEl.classList.add('show');
+          staleEl.replaceChildren(
+            el('span', {
+              text: `${fmt(summary.stale)} of ${fmt(summary.total)} transactions were classified with a different rule set. `,
+            }),
+            el('span', { text: 'Run ' }),
+            el('code', { text: 'wallet-fingerprint classify' }),
+            el('span', { text: ' to re-score them offline (raw payloads are stored).' }),
+          );
+        } else {
+          staleEl.classList.remove('show');
+        }
+        $('updated').textContent = `updated ${new Date().toLocaleTimeString()}`;
+        const rt = payload.runtime || {};
+        $('runtime').textContent = rt.requests !== undefined
+          ? `${fmt(rt.requests)} API requests · ${fmt(rt.rateLimitHits || 0)} rate-limit hits`
+          : '';
+      }
+
+      let source = null;
+      let spamHidden = localStorage.getItem('wf.hideSpam') === '1';
+
+      function connect() {
+        if (source) source.close();
+        const query = spamHidden ? '?exclude_spam=1' : '';
+        source = new EventSource(`/api/stream${query}`);
+        source.addEventListener('stats', (ev) => {
+          $('conn').classList.add('on');
+          $('connText').textContent = 'live';
+          document.body.classList.remove('loading');
+          applyStats(JSON.parse(ev.data));
+          loadNearMisses();
+        });
+        source.onerror = () => {
+          $('conn').classList.remove('on');
+          $('connText').textContent = 'reconnecting…';
+          if (source) source.close();
+          setTimeout(connect, 3000);
+        };
+      }
+
+      const TABS = ['wallets', 'fingerprints'];
+      let activeTab = TABS.includes(localStorage.getItem('wf.tab')) ? localStorage.getItem('wf.tab') : 'wallets';
+      function showTab(name) {
+        activeTab = name;
+        localStorage.setItem('wf.tab', name);
+        for (const tab of TABS) {
+          const panel = document.getElementById(`panel-${tab}`);
+          if (panel) panel.hidden = tab !== name;
+        }
+        for (const button of document.querySelectorAll('#tabs .tab')) {
+          button.classList.toggle('active', button.dataset.tab === name);
+        }
+      }
+      for (const button of document.querySelectorAll('#tabs .tab')) {
+        button.addEventListener('click', () => showTab(button.dataset.tab));
+      }
+      showTab(activeTab);
+
+      const spamToggle = $('hideSpam');
+      spamToggle.checked = spamHidden;
+      spamToggle.closest('.toggle').classList.toggle('off', !spamHidden);
+      spamToggle.addEventListener('change', () => {
+        spamHidden = spamToggle.checked;
+        localStorage.setItem('wf.hideSpam', spamHidden ? '1' : '0');
+        spamToggle.closest('.toggle').classList.toggle('off', !spamHidden);
+        // The filter lives on the server, so the stream has to reconnect. Dim the
+        // page until the new frame lands, otherwise the click looks ignored while
+        // the server rebuilds the report.
+        document.body.classList.add('loading');
+        $('connText').textContent = 'updating…';
+        connect();
+        loadNearMisses();
+      });
+
+      connect();
+      loadNearMisses();
+    </script>
+  </body>
+</html>
